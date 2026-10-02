@@ -1,10 +1,10 @@
 {
-  "name": "plugin-template",
+  "name": "plugin-hudi",
   "build": {
     "context": ".",
     "dockerfile": "Dockerfile"
   },
-  "workspaceFolder": "/workspaces/plugin-template",
+  "workspaceFolder": "/workspaces/plugin-hudi",
   "forwardPorts": [8080],
   "customizations": {
     "vscode": {
