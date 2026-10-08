@@ -1,7 +1,6 @@
 @PluginSubGroup(
-    title = "Apache Hudi",
-    description = "Apache Hudi plugin for Kestra",
-    categories = PluginSubGroup.PluginCategory.DATA
+    description = "Plugin to interact with Apache Hudi",
+    categories = PluginSubGroup.PluginCategory.DATABASE
 )
 package io.kestra.plugin.hudi;
 
