@@ -41,7 +41,6 @@ class TriggerTest {
 
     @Test
     void runTriggerPolling(@TempDir Path tempDir) throws Exception {
-        RunContext runContext = runContextFactory.of();
         String basePath = tempDir.toUri().toString();
         String tableName = "orders_trigger";
 
@@ -50,6 +49,14 @@ class TriggerTest {
             .namespace("io.kestra.tests")
             .build();
 
+        Trigger trigger = Trigger.builder()
+            .id(IdUtils.create())
+            .basePath(Property.of(basePath))
+            .tableName(Property.of(tableName))
+            .build();
+
+        RunContext runContext = runContextFactory.of(flow, trigger);
+
         ConditionContext conditionContext = ConditionContext.builder()
             .runContext(runContext)
             .flow(flow)
@@ -57,12 +64,6 @@ class TriggerTest {
 
         TriggerContext triggerContext = TriggerContext.builder()
             .triggerId("test_hudi_trigger")
-            .build();
-
-        Trigger trigger = Trigger.builder()
-            .id(IdUtils.create())
-            .basePath(Property.of(basePath))
-            .tableName(Property.of(tableName))
             .build();
 
         // 1. Uninitialized table -> Optional.empty()
