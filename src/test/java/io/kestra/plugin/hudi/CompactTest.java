@@ -1,17 +1,20 @@
 package io.kestra.plugin.hudi;
 
+import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.models.tasks.VoidOutput;
+import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
-import io.kestra.core.junit.annotations.KestraTest;
+import jakarta.inject.Inject;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import jakarta.inject.Inject;
 
+import java.io.File;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
 class CompactTest {
@@ -19,21 +22,48 @@ class CompactTest {
     @Inject
     private RunContextFactory runContextFactory;
 
+    @BeforeAll
+    static void setupHadoop() {
+        AbstractHudiConnection.disableNativeIOOnWindows();
+        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            File hadoopHome = new File("C:\\hadoop");
+            if (hadoopHome.exists()) {
+                System.setProperty("hadoop.home.dir", hadoopHome.getAbsolutePath());
+            }
+        }
+    }
+
+
     @Test
-    void run(@TempDir Path tempDir) throws Exception {
-        var runContext = runContextFactory.of();
+    void runCompact(@TempDir Path tempDir) throws Exception {
+        RunContext runContext = runContextFactory.of();
         String basePath = tempDir.toUri().toString();
 
         Compact task = Compact.builder()
             .id(IdUtils.create())
             .type(Compact.class.getName())
             .basePath(Property.of(basePath))
-            .tableName(Property.of("orders"))
+            .tableName(Property.of("orders_mor"))
             .build();
 
-        VoidOutput runOutput = task.run(runContext);
+        Compact.Output runOutput = task.run(runContext);
+        assertThat(runOutput).isNotNull();
+    }
 
-        // Since it's a mock implementation, it returns null
-        assertThat(runOutput).isNull();
+    @Test
+    void testKillCancellation(@TempDir Path tempDir) {
+        String basePath = tempDir.toUri().toString();
+
+        Compact task = Compact.builder()
+            .id(IdUtils.create())
+            .type(Compact.class.getName())
+            .basePath(Property.of(basePath))
+            .tableName(Property.of("orders_mor"))
+            .build();
+
+        task.kill();
+
+        RunContext runContext = runContextFactory.of();
+        assertThrows(IllegalStateException.class, () -> task.run(runContext));
     }
 }

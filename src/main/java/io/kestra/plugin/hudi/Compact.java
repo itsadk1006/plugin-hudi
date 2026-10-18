@@ -3,16 +3,23 @@ package io.kestra.plugin.hudi;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.tasks.RunnableTask;
-import io.kestra.core.models.tasks.VoidOutput;
 import io.kestra.core.runners.RunContext;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
-import lombok.Builder;
+import org.apache.hudi.client.HoodieJavaWriteClient;
+import org.apache.hudi.common.model.HoodieAvroPayload;
+import org.apache.hudi.common.model.HoodieTableType;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.config.HoodieWriteConfig;
 import org.slf4j.Logger;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @SuperBuilder
 @ToString
@@ -23,40 +30,102 @@ import org.slf4j.Logger;
     examples = {
         @Example(
             full = true,
-            title = "Compact a Hudi table",
-            code = {
-                "id: hudi_compact",
-                "namespace: company.team",
-                "type: io.kestra.plugin.hudi.Compact",
-                "basePath: s3a://my-lake/tables/orders",
-                "tableName: orders"
-            }
+            title = "Compact an Apache Hudi table",
+            code = """
+                id: hudi_compact_flow
+                namespace: company.team
+
+                tasks:
+                  - id: compact_table
+                    type: io.kestra.plugin.hudi.Compact
+                    basePath: file:///tmp/hudi_tables/orders
+                    tableName: orders
+                """
         )
     }
 )
 @Schema(
-    title = "Compact an Apache Hudi table."
+    title = "Compact an Apache Hudi table",
+    description = "Trigger compaction table service on an Apache Hudi table."
 )
-public class Compact extends AbstractHudiConnection implements RunnableTask<VoidOutput> {
+public class Compact extends AbstractHudiConnection implements RunnableTask<Compact.Output> {
+
     @Builder.Default
-    private transient boolean isKilled = false;
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private final AtomicBoolean isKilled = new AtomicBoolean(false);
+
+    @Builder.Default
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private final AtomicReference<String> runningInstant = new AtomicReference<>();
+
+    @Builder.Default
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private final AtomicReference<HoodieJavaWriteClient<HoodieAvroPayload>> activeClient = new AtomicReference<>();
 
     @Override
-    public VoidOutput run(RunContext runContext) throws Exception {
+    public Output run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
-        String table = runContext.render(tableName).as(String.class).orElse(null);
-        logger.info("Compacting Hudi table: {}", table);
-        
-        // Hudi compact logic would be implemented here.
-        if (isKilled) {
-            logger.warn("Compact task was killed");
+        String renderedBasePath = runContext.render(this.basePath).as(String.class).orElseThrow();
+        String renderedTableName = runContext.render(this.tableName).as(String.class).orElseThrow();
+
+        logger.info("Compacting Hudi table '{}' at '{}'", renderedTableName, renderedBasePath);
+
+        getOrInitMetaClient(runContext, renderedBasePath, renderedTableName, HoodieTableType.MERGE_ON_READ);
+
+        HoodieWriteConfig writeConfig = baseWriteConfigBuilder(runContext, renderedBasePath, renderedTableName).build();
+
+        try (HoodieJavaWriteClient<HoodieAvroPayload> client = createJavaWriteClient(runContext, writeConfig)) {
+            activeClient.set(client);
+            if (isKilled.get()) {
+                throw new IllegalStateException("Compact task was killed before execution");
+            }
+
+            Option<String> compactionInstant = client.scheduleCompaction(Option.empty());
+            if (compactionInstant.isPresent()) {
+                String instant = compactionInstant.get();
+                runningInstant.set(instant);
+
+                if (isKilled.get()) {
+                    client.rollback(instant);
+                    throw new IllegalStateException("Compact task was killed during execution");
+                }
+
+                client.compact(instant);
+                logger.info("Successfully completed compaction for instant {} on table '{}'", instant, renderedTableName);
+                return Output.builder().instantTime(instant).build();
+            } else {
+                logger.info("No compaction scheduled for table '{}'", renderedTableName);
+                return Output.builder().instantTime(null).build();
+            }
+        } finally {
+            activeClient.set(null);
+            runningInstant.set(null);
         }
-        
-        return null;
     }
 
     @Override
     public void kill() {
-        this.isKilled = true;
+        isKilled.set(true);
+        String instant = runningInstant.get();
+        HoodieJavaWriteClient<HoodieAvroPayload> client = activeClient.get();
+        if (client != null && instant != null) {
+            try {
+                client.rollback(instant);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    @Builder
+    @Getter
+    public static class Output implements io.kestra.core.models.tasks.Output {
+        @Schema(
+            title = "Compaction instant timestamp",
+            description = "The timestamp of the scheduled and executed compaction instant."
+        )
+        private String instantTime;
     }
 }
