@@ -149,6 +149,10 @@ class BasePathAndConfigurationTest {
             "hoodie.write.lock.provider", "hoodie.write.commit.callback.on", "hoodie.write.commit.callback.http.url",
             "hoodie.datasource.write.payload.class", "hoodie.some.classname", "hoodie.write.some.factory", "hoodie.some.impl",
             "hoodie.index.class.name", "HOODIE.Some.Class", "hoodie.some.endpoint", "hoodie.compaction.strategy",
+            "hoodie.base.path", "HOODIE.BASE.PATH", "hoodie.metrics.on", "hoodie.metrics.reporter.type",
+            "hoodie.embed.timeline.server", "hoodie.embed.timeline.server.port", "hoodie.write.lock.zookeeper.base_path",
+            "hoodie.cleaner.fileversions.path", "hoodie.parquet.tmp.dir", "hoodie.clustering.plan.strategy.class.name",
+            "hoodie.write.commit.callback.on", "hoodie.write.concurrency.mode", "hoodie.unknown.setting", "fs.s3a.buffer.dir",
             "io.compression.codecs", "io.serializations", "hadoop.security.group.mapping", "fs.defaultFS",
             "fs.AbstractFileSystem.s3a.impl", "fs.viewfs.mounttable.cluster.link./data", "fs.s3a.impl", "fs.custom.impl", "FS.S3A.IMPL",
             "fs.s3a.aws.credentials.provider", "fs.s3a.some.factory", "fs.gs.some.classname", "fs.azure.account.oauth.provider.type",
@@ -183,21 +187,65 @@ class BasePathAndConfigurationTest {
     @Test
     void allowedConfigurationKeysPass() throws Exception {
         var runContext = runContextFactory.of();
-        var configuration = Map.of(
-            "fs.s3a.access.key", "key",
-            "fs.s3a.secret.key", "secret",
-            "fs.s3a.endpoint", "http://localhost:9000",
-            "fs.s3a.path.style.access", "true",
-            "fs.s3a.region", "eu-west-1",
-            "fs.s3a.session.token", "token",
-            "fs.s3a.connection.maximum", "10",
-            "fs.gs.project.id", "project",
-            "fs.azure.account.key.account.dfs.core.windows.net", "key",
-            "hoodie.cleaner.commits.retained", "1"
-        );
+        var configuration = new java.util.LinkedHashMap<String, String>();
+        configuration.put("fs.s3a.access.key", "key");
+        configuration.put("fs.s3a.secret.key", "secret");
+        configuration.put("fs.s3a.endpoint", "http://localhost:9000");
+        configuration.put("fs.s3a.path.style.access", "true");
+        configuration.put("fs.s3a.region", "eu-west-1");
+        configuration.put("fs.s3a.session.token", "token");
+        configuration.put("fs.s3a.connection.maximum", "10");
+        configuration.put("fs.gs.project.id", "project");
+        configuration.put("fs.azure.account.key.account.dfs.core.windows.net", "key");
+        configuration.put("hoodie.cleaner.commits.retained", "1");
+        configuration.put("hoodie.datasource.write.recordkey.field", "id");
+        configuration.put("hoodie.datasource.write.precombine.field", "ts");
+        configuration.put("hoodie.datasource.write.partitionpath.field", "region");
+        configuration.put("hoodie.table.name", "orders");
+        configuration.put("hoodie.table.type", "COPY_ON_WRITE");
+        configuration.put("hoodie.index.type", "BLOOM");
+        configuration.put("hoodie.insert.shuffle.parallelism", "2");
+        configuration.put("hoodie.upsert.shuffle.parallelism", "2");
+        configuration.put("hoodie.compact.inline", "false");
+        configuration.put("hoodie.clustering.inline", "false");
+        configuration.put("hoodie.parquet.max.file.size", "1048576");
 
         var hadoopConf = AbstractHudiConnection.hadoopConfiguration(runContext, Property.ofValue(configuration));
 
         configuration.forEach((k, v) -> assertThat(hadoopConf.get(k)).isEqualTo(v));
+    }
+
+    @Test
+    void basePathInConfigurationIsRejectedByTask() {
+        var runContext = runContextFactory.of();
+        var task = Upsert.builder()
+            .id(IdUtils.create())
+            .type(Upsert.class.getName())
+            .basePath(Property.ofValue("table"))
+            .tableName(Property.ofValue("orders"))
+            .configuration(Property.ofValue(Map.of("hoodie.base.path", "file:///elsewhere")))
+            .build();
+
+        assertThatThrownBy(() -> task.baseWriteConfigBuilder(runContext, "file:///table", "orders"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("'hoodie.base.path' is not allowed");
+    }
+
+    @Test
+    void checkedBasePathAndTableNameWin() throws Exception {
+        var runContext = runContextFactory.of();
+        var task = Upsert.builder()
+            .id(IdUtils.create())
+            .type(Upsert.class.getName())
+            .basePath(Property.ofValue("table"))
+            .tableName(Property.ofValue("orders"))
+            .configuration(Property.ofValue(Map.of("hoodie.table.name", "other", "hoodie.cleaner.commits.retained", "1")))
+            .build();
+
+        var config = task.baseWriteConfigBuilder(runContext, "file:///table", "orders").build();
+
+        assertThat(config.getBasePath()).isEqualTo("file:///table");
+        assertThat(config.getTableName()).isEqualTo("orders");
+        assertThat(config.getProps().getProperty("hoodie.cleaner.commits.retained")).isEqualTo("1");
     }
 }

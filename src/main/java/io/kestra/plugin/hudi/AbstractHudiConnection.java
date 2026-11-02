@@ -93,7 +93,10 @@ public abstract class AbstractHudiConnection extends Task {
 
     static final String CONFIGURATION_DESCRIPTION = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). "
         + "Allowed configuration keys start with `hoodie.`, `fs.s3a.`, `fs.gs.`, `fs.azure.` or `fs.abfs.`. "
-        + "Within `hoodie.`, keys containing `callback`, `lock.provider`, `.class`, `.impl`, `.factory`, `classname`, `.url` or `.endpoint` are not allowed. "
+        + "Within `hoodie.`, only write and table tuning keys are accepted: record key, precombine and partition path fields, table name and type, index type, "
+        + "insert, upsert, bulk insert and delete parallelism, `hoodie.cleaner.*`, `hoodie.clean.*`, `hoodie.compact.*`, `hoodie.clustering.*`, `hoodie.archive.*`, `hoodie.keep.*`, "
+        + "`hoodie.parquet.*`, `hoodie.logfile.*`, `hoodie.copyonwrite.*` and `hoodie.index.bloom.*`. Other `hoodie.` keys are rejected, as is any key ending with `.path` or `.dir`, "
+        + "or containing `.class`, `.impl`, `.factory` or `classname`. "
         + "Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors`, `binding`, `keyfile` or `keytab`, are not allowed; "
         + "the credential and endpoint keys `access.key`, `secret.key`, `session.token`, `endpoint`, `path.style.access` and `region` (e.g. `fs.s3a.access.key`) are always accepted. "
         + "`fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`.";
@@ -164,10 +167,31 @@ public abstract class AbstractHudiConnection extends Task {
     private static final List<String> ALLOWED_KEY_PREFIXES = List.of("hoodie.", "fs.s3a.", "fs.gs.", "fs.azure.", "fs.abfs.");
     private static final List<String> STORAGE_KEY_PREFIXES = List.of("fs.s3a.", "fs.gs.", "fs.azure.", "fs.abfs.");
 
-    /** Small deny set inside {@code hoodie.}: keys that name callbacks, lock providers, classes or remote endpoints. */
+    /** Write and table tuning keys accepted under {@code hoodie.}. */
+    private static final List<String> ALLOWED_HOODIE_KEYS = List.of(
+        "hoodie.table.name", "hoodie.table.type",
+        "hoodie.datasource.write.recordkey.field", "hoodie.datasource.write.precombine.field",
+        "hoodie.datasource.write.partitionpath.field", "hoodie.datasource.write.table.type",
+        "hoodie.index.type",
+        "hoodie.insert.shuffle.parallelism", "hoodie.upsert.shuffle.parallelism",
+        "hoodie.bulkinsert.shuffle.parallelism", "hoodie.delete.shuffle.parallelism",
+        "hoodie.finalize.write.parallelism", "hoodie.combine.before.insert", "hoodie.combine.before.upsert",
+        "hoodie.combine.before.delete", "hoodie.merge.allow.duplicate.on.inserts"
+    );
+
+    private static final List<String> ALLOWED_HOODIE_PREFIXES = List.of(
+        "hoodie.cleaner.", "hoodie.clean.", "hoodie.compact.", "hoodie.clustering.", "hoodie.archive.", "hoodie.keep.",
+        "hoodie.parquet.", "hoodie.logfile.", "hoodie.copyonwrite.", "hoodie.index.bloom."
+    );
+
+    /** Keys rejected whatever the allow-list says. */
+    private static final List<String> DENIED_HOODIE_PREFIXES = List.of(
+        "hoodie.base.path", "hoodie.metrics.", "hoodie.embed.timeline.server", "hoodie.write.commit.callback", "hoodie.write.lock."
+    );
     private static final List<String> DENIED_HOODIE_FRAGMENTS = List.of(
         "callback", "lock.provider", ".class", ".impl", ".factory", "classname", ".url", ".endpoint", "compaction.strategy"
     );
+    private static final List<String> DENIED_KEY_SUFFIXES = List.of(".path", ".dir");
 
     /** Key shapes that are not accepted under the storage prefixes, except the explicit keys below. */
     private static final List<String> DENIED_STORAGE_SUFFIXES = List.of(".impl", ".class", ".classname", ".factory", ".provider");
@@ -192,8 +216,14 @@ public abstract class AbstractHudiConnection extends Task {
             return false;
         }
 
+        if (DENIED_KEY_SUFFIXES.stream().anyMatch(lower::endsWith)) {
+            return false;
+        }
+
         if (lower.startsWith("hoodie.")) {
-            return DENIED_HOODIE_FRAGMENTS.stream().noneMatch(lower::contains);
+            return DENIED_HOODIE_PREFIXES.stream().noneMatch(lower::startsWith)
+                && DENIED_HOODIE_FRAGMENTS.stream().noneMatch(lower::contains)
+                && (ALLOWED_HOODIE_KEYS.contains(lower) || ALLOWED_HOODIE_PREFIXES.stream().anyMatch(lower::startsWith));
         }
 
         var storagePrefix = STORAGE_KEY_PREFIXES.stream().filter(lower::startsWith).findFirst();
@@ -364,6 +394,7 @@ public abstract class AbstractHudiConnection extends Task {
             Properties customProps = new Properties();
             renderConfiguration(runContext, this.configuration).forEach(customProps::setProperty);
             builder.withProperties(customProps);
+            builder.withPath(renderedBasePath).forTable(renderedTableName);
         }
 
         return builder;
