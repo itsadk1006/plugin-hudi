@@ -53,6 +53,21 @@ class CompactTest {
     }
 
     @Test
+    void copyOnWriteTableHasNothingToCompact() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+        HoodieTableMetaClient.newTableBuilder()
+            .setTableType(HoodieTableType.COPY_ON_WRITE)
+            .setTableName("orders_mor")
+            .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
+            .initTable(new HadoopStorageConfiguration(new Configuration()), basePath);
+
+        var runOutput = compact(basePath).run(runContext);
+
+        assertThat(runOutput.getInstantTime()).isNull();
+    }
+
+    @Test
     void failsOnMissingTable() {
         var runContext = runContextFactory.of();
         var task = compact(HudiTestUtils.tableUri(runContext));

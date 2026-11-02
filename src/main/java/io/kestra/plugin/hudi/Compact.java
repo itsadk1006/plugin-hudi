@@ -11,6 +11,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
+import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.util.Option;
 
 
@@ -51,7 +52,11 @@ public class Compact extends AbstractHudiMaintenance implements RunnableTask<Com
 
         logger.info("Compacting Hudi table '{}' at '{}'", rTableName, rBasePath);
 
-        getExistingMetaClient(runContext, rBasePath);
+        var metaClient = getExistingMetaClient(runContext, rBasePath);
+        if (metaClient.getTableType() == HoodieTableType.COPY_ON_WRITE) {
+            logger.info("Table '{}' is copy on write, there is nothing to compact", rTableName);
+            return Output.builder().instantTime(null).build();
+        }
 
         var writeConfig = baseWriteConfigBuilder(runContext, rBasePath, rTableName).build();
 

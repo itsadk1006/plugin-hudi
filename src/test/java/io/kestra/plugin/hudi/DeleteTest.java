@@ -35,6 +35,55 @@ class DeleteTest {
     }
 
     @Test
+    void deletesFromPartitionedTable() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+
+        Insert.builder()
+            .id(IdUtils.create())
+            .type(Insert.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_part"))
+            .recordKeyField(Property.ofValue("order_id"))
+            .partitionPathField(Property.ofValue("region"))
+            .from(Property.ofValue(List.of(
+                Map.of("order_id", 1, "region", "eu", "amount", 10.5),
+                Map.of("order_id", 2, "region", "us", "amount", 20.0)
+            )))
+            .build()
+            .run(runContext);
+
+        Upsert.builder()
+            .id(IdUtils.create())
+            .type(Upsert.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_part"))
+            .recordKeyField(Property.ofValue("order_id"))
+            .partitionPathField(Property.ofValue("region"))
+            .precombineField(Property.ofValue("amount"))
+            .from(Property.ofValue(List.of(
+                Map.of("order_id", 2, "region", "us", "amount", 25.0),
+                Map.of("order_id", 3, "region", "eu", "amount", 7.0)
+            )))
+            .build()
+            .run(runContext);
+
+        var output = Delete.builder()
+            .id(IdUtils.create())
+            .type(Delete.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_part"))
+            .recordKeyField(Property.ofValue("order_id"))
+            .partitionPathField(Property.ofValue("region"))
+            .from(Property.ofValue("[{\"order_id\":1,\"region\":\"eu\"}]"))
+            .build()
+            .run(runContext);
+
+        assertThat(output.getRecordCount()).isEqualTo(1L);
+        assertThat(output.getAffectedPartitions()).containsExactly("eu");
+    }
+
+    @Test
     void runDelete() throws Exception {
         RunContext runContext = runContextFactory.of();
         String basePath = HudiTestUtils.tableUri(runContext);

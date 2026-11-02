@@ -355,7 +355,7 @@ public abstract class AbstractHudiConnection extends Task {
         HoodieWriteConfig.Builder builder = HoodieWriteConfig.newBuilder()
             .withPath(renderedBasePath)
             .forTable(renderedTableName)
-            .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.INMEMORY).build())
+            .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.BLOOM).build())
             .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
             .withEmbeddedTimelineServerEnabled(false);
 

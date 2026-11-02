@@ -227,6 +227,12 @@ public abstract class HudiRecordUtils {
             return keys;
         }
 
+        // Kestra renders a list or map property as its JSON text
+        var trimmed = str.strip();
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+            return parseDeleteKeys(runContext, JacksonMapper.ofJson().readValue(trimmed, Object.class), recordKeyField, partitionField);
+        }
+
         keys.add(new HoodieKey(str, ""));
         return keys;
     }
