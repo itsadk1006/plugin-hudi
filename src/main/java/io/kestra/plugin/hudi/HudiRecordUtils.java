@@ -17,7 +17,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public abstract class HudiRecordUtils {
 
@@ -127,7 +132,9 @@ public abstract class HudiRecordUtils {
         String partitionField
     ) {
         List<HoodieRecord<HoodieAvroPayload>> result = new ArrayList<>(records.size());
+        var index = -1;
         for (Map<String, Object> record : records) {
+            index++;
             GenericRecord genericRecord = new GenericData.Record(schema);
             for (Schema.Field field : schema.getFields()) {
                 Object val = record.get(field.name());
@@ -166,8 +173,7 @@ public abstract class HudiRecordUtils {
                 }
             }
 
-            Object kv = record.get(recordKeyField);
-            String key = kv != null ? String.valueOf(kv) : UUID.randomUUID().toString();
+            var key = requireKey(record, recordKeyField, index);
             String partition = (partitionField != null && record.get(partitionField) != null) ? String.valueOf(record.get(partitionField)) : "";
 
             HoodieKey hoodieKey = new HoodieKey(key, partition);
@@ -177,7 +183,19 @@ public abstract class HudiRecordUtils {
         return result;
     }
 
-    @SuppressWarnings("unchecked")
+    private static String requireKey(Map<?, ?> record, String recordKeyField, int index) {
+        var kv = record.get(recordKeyField);
+        if (kv == null) {
+            throw new IllegalArgumentException("Record at index " + index + " has no '" + recordKeyField + "' field, set recordKeyField to an existing field");
+        }
+        return String.valueOf(kv);
+    }
+
+    private static HoodieKey toDeleteKey(Map<?, ?> record, String recordKeyField, String partitionField, int index) {
+        var partition = partitionField != null && record.get(partitionField) != null ? String.valueOf(record.get(partitionField)) : "";
+        return new HoodieKey(requireKey(record, recordKeyField, index), partition);
+    }
+
     public static List<HoodieKey> parseDeleteKeys(RunContext runContext, Object fromObj, String recordKeyField, String partitionField) throws Exception {
         if (fromObj == null) {
             return Collections.emptyList();
@@ -185,12 +203,10 @@ public abstract class HudiRecordUtils {
 
         List<HoodieKey> keys = new ArrayList<>();
         if (fromObj instanceof List<?> list) {
-            for (Object item : list) {
+            for (var i = 0; i < list.size(); i++) {
+                var item = list.get(i);
                 if (item instanceof Map<?, ?> map) {
-                    Object kv = map.get(recordKeyField);
-                    String key = kv != null ? String.valueOf(kv) : "";
-                    String partition = partitionField != null && map.get(partitionField) != null ? String.valueOf(map.get(partitionField)) : "";
-                    keys.add(new HoodieKey(key, partition));
+                    keys.add(toDeleteKey(map, recordKeyField, partitionField, i));
                 } else {
                     keys.add(new HoodieKey(String.valueOf(item), ""));
                 }
@@ -199,20 +215,14 @@ public abstract class HudiRecordUtils {
         }
 
         if (fromObj instanceof Map<?, ?> map) {
-            Object kv = map.get(recordKeyField);
-            String key = kv != null ? String.valueOf(kv) : "";
-            String partition = partitionField != null && map.get(partitionField) != null ? String.valueOf(map.get(partitionField)) : "";
-            return List.of(new HoodieKey(key, partition));
+            return List.of(toDeleteKey(map, recordKeyField, partitionField, 0));
         }
 
-        String str = fromObj.toString();
+        var str = fromObj.toString();
         if (str.startsWith("kestra://")) {
-            List<Map<String, Object>> records = parseRawRecords(runContext, str);
-            for (Map<String, Object> map : records) {
-                Object kv = map.get(recordKeyField);
-                String key = kv != null ? String.valueOf(kv) : "";
-                String partition = partitionField != null && map.get(partitionField) != null ? String.valueOf(map.get(partitionField)) : "";
-                keys.add(new HoodieKey(key, partition));
+            var records = parseRawRecords(runContext, str);
+            for (var i = 0; i < records.size(); i++) {
+                keys.add(toDeleteKey(records.get(i), recordKeyField, partitionField, i));
             }
             return keys;
         }

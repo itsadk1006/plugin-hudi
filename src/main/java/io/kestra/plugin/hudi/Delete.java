@@ -14,13 +14,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
-import org.apache.hudi.client.HoodieJavaWriteClient;
-import org.apache.hudi.client.WriteStatus;
-import org.apache.hudi.common.model.HoodieAvroPayload;
-import org.apache.hudi.common.model.HoodieKey;
-import org.apache.hudi.common.model.HoodieTableType;
-import org.apache.hudi.config.HoodieWriteConfig;
-import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -86,18 +79,18 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        Logger logger = runContext.logger();
-        String renderedBasePath = runContext.render(this.basePath).as(String.class).orElseThrow();
-        String renderedTableName = runContext.render(this.tableName).as(String.class).orElseThrow();
-        String renderedRecordKey = runContext.render(this.recordKeyField).as(String.class).orElseThrow();
-        String renderedPartition = this.partitionPathField != null ? runContext.render(this.partitionPathField).as(String.class).orElse(null) : null;
-        Object renderedFrom = runContext.render(this.from).as(Object.class).orElse(null);
+        var logger = runContext.logger();
+        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
+        var rRecordKey = runContext.render(this.recordKeyField).as(String.class).orElseThrow(() -> new IllegalArgumentException("recordKeyField is required"));
+        var rPartition = this.partitionPathField != null ? runContext.render(this.partitionPathField).as(String.class).orElse(null) : null;
+        var rFrom = runContext.render(this.from).as(Object.class).orElse(null);
 
-        logger.info("Deleting records from Hudi table '{}' at '{}'", renderedTableName, renderedBasePath);
+        logger.info("Deleting records from Hudi table '{}' at '{}'", rTableName, rBasePath);
 
-        List<HoodieKey> keys = HudiRecordUtils.parseDeleteKeys(runContext, renderedFrom, renderedRecordKey, renderedPartition);
+        var keys = HudiRecordUtils.parseDeleteKeys(runContext, rFrom, rRecordKey, rPartition);
         if (keys.isEmpty()) {
-            logger.warn("No keys to delete from Hudi table '{}'", renderedTableName);
+            logger.warn("No keys to delete from Hudi table '{}'", rTableName);
             return Output.builder()
                 .recordCount(0L)
                 .commitInstantTime(null)
@@ -105,28 +98,29 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
                 .build();
         }
 
-        getOrInitMetaClient(runContext, renderedBasePath, renderedTableName, HoodieTableType.COPY_ON_WRITE);
+        getExistingMetaClient(runContext, rBasePath);
 
-        Properties props = new Properties();
-        props.setProperty("hoodie.datasource.write.recordkey.field", renderedRecordKey);
-        if (renderedPartition != null) {
-            props.setProperty("hoodie.datasource.write.partitionpath.field", renderedPartition);
+        var props = new Properties();
+        props.setProperty("hoodie.datasource.write.recordkey.field", rRecordKey);
+        if (rPartition != null) {
+            props.setProperty("hoodie.datasource.write.partitionpath.field", rPartition);
         }
 
-        HoodieWriteConfig writeConfig = baseWriteConfigBuilder(runContext, renderedBasePath, renderedTableName)
+        var writeConfig = baseWriteConfigBuilder(runContext, rBasePath, rTableName)
             .withProperties(props)
             .build();
 
-        try (HoodieJavaWriteClient<HoodieAvroPayload> client = createJavaWriteClient(runContext, writeConfig)) {
-            String instantTime = client.startCommit();
-            List<WriteStatus> statuses = client.delete(keys, instantTime);
-            client.commit(instantTime, statuses);
+        try (var client = createJavaWriteClient(runContext, writeConfig)) {
+            var instantTime = client.startCommit();
+            var statuses = client.delete(keys, instantTime);
+            commitOrFail(client, instantTime, statuses, rTableName);
 
-            long totalDeleted = keys.size();
-            Set<String> affectedPartitions = new LinkedHashSet<>();
-            for (HoodieKey k : keys) {
-                if (k.getPartitionPath() != null && !k.getPartitionPath().isEmpty()) {
-                    affectedPartitions.add(k.getPartitionPath());
+            var totalDeleted = 0L;
+            var affectedPartitions = new LinkedHashSet<String>();
+            for (var status : statuses) {
+                totalDeleted += status.getStat().getNumDeletes();
+                if (status.getPartitionPath() != null && !status.getPartitionPath().isEmpty()) {
+                    affectedPartitions.add(status.getPartitionPath());
                 }
             }
 
@@ -144,7 +138,7 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Number of records deleted",
-            description = "Total number of records deleted from the table."
+            description = "Number of records actually deleted, as reported by the Hudi write statuses. Keys that do not exist are not counted."
         )
         private Long recordCount;
 

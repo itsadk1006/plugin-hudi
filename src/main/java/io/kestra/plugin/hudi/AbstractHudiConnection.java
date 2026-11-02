@@ -13,10 +13,10 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.nativeio.NativeIO;
 import org.apache.hudi.client.HoodieJavaWriteClient;
+import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.common.HoodieJavaEngineContext;
 import org.apache.hudi.common.model.HoodieAvroPayload;
 import org.apache.hudi.common.model.HoodieFileFormat;
@@ -31,6 +31,7 @@ import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
@@ -164,6 +165,30 @@ public abstract class AbstractHudiConnection extends Task {
             .setTableName(rTableName)
             .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
             .initTable(new HadoopStorageConfiguration(hadoopConf), rBasePath);
+    }
+
+    public static void commitOrFail(
+        HoodieJavaWriteClient<HoodieAvroPayload> client,
+        String instantTime,
+        List<WriteStatus> statuses,
+        String rTableName
+    ) {
+        for (var status : statuses) {
+            if (status.hasErrors()) {
+                var firstError = status.getGlobalError() != null
+                    ? status.getGlobalError()
+                    : status.getErrors().values().stream().findFirst().orElse(null);
+                throw new IllegalStateException(
+                    "Write to Hudi table '" + rTableName + "' failed with " + status.getTotalErrorRecords()
+                        + " error record(s), first error: " + (firstError != null ? firstError.getMessage() : "unknown"),
+                    firstError
+                );
+            }
+        }
+
+        if (!client.commit(instantTime, statuses)) {
+            throw new IllegalStateException("Commit of instant " + instantTime + " on Hudi table '" + rTableName + "' failed");
+        }
     }
 
     public HoodieWriteConfig.Builder baseWriteConfigBuilder(
