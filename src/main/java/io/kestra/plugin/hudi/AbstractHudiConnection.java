@@ -94,7 +94,7 @@ public abstract class AbstractHudiConnection extends Task {
     static final String CONFIGURATION_DESCRIPTION = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). "
         + "Allowed configuration keys start with `hoodie.`, `fs.s3a.`, `fs.gs.`, `fs.azure.` or `fs.abfs.`. "
         + "Within `hoodie.`, keys containing `callback`, `lock.provider`, `.class`, `.impl`, `.factory`, `classname`, `.url` or `.endpoint` are not allowed. "
-        + "Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors` or `binding`, are not allowed; "
+        + "Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors`, `binding`, `keyfile` or `keytab`, are not allowed; "
         + "the credential and endpoint keys `access.key`, `secret.key`, `session.token`, `endpoint`, `path.style.access` and `region` (e.g. `fs.s3a.access.key`) are always accepted. "
         + "`fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`.";
 
@@ -171,7 +171,7 @@ public abstract class AbstractHudiConnection extends Task {
 
     /** Key shapes that are not accepted under the storage prefixes, except the explicit keys below. */
     private static final List<String> DENIED_STORAGE_SUFFIXES = List.of(".impl", ".class", ".classname", ".factory", ".provider");
-    private static final List<String> DENIED_STORAGE_FRAGMENTS = List.of("provider", "signers", "interceptors", "binding");
+    private static final List<String> DENIED_STORAGE_FRAGMENTS = List.of("provider", "signers", "interceptors", "binding", "keyfile", "keytab");
 
     /** Credential and endpoint settings, accepted whatever the shape rules above say. */
     private static final List<String> ALLOWED_STORAGE_KEY_NAMES = List.of(

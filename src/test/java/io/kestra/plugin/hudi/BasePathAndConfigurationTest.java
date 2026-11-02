@@ -152,7 +152,7 @@ class BasePathAndConfigurationTest {
             "io.compression.codecs", "io.serializations", "hadoop.security.group.mapping", "fs.defaultFS",
             "fs.AbstractFileSystem.s3a.impl", "fs.viewfs.mounttable.cluster.link./data", "fs.s3a.impl", "fs.custom.impl", "FS.S3A.IMPL",
             "fs.s3a.aws.credentials.provider", "fs.s3a.some.factory", "fs.gs.some.classname", "fs.azure.account.oauth.provider.type",
-            "fs.abfs.some.class", "fs.s3a.custom.signers", "unknown.key"
+            "fs.abfs.some.class", "fs.s3a.custom.signers", "fs.gs.auth.service.account.json.keyfile", "fs.gs.auth.service.account.keytab", "unknown.key"
         );
 
         for (var key : keys) {
