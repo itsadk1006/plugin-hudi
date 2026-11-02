@@ -15,21 +15,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
-import org.apache.hudi.common.model.HoodieCommitMetadata;
-import org.apache.hudi.common.model.HoodieTableType;
-import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
-import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.util.Option;
-import org.slf4j.Logger;
 
-import java.io.File;
 import java.io.FileOutputStream;
-import java.io.OutputStream;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,74 +58,60 @@ public class Commits extends AbstractHudiConnection implements RunnableTask<Comm
     )
     @PluginProperty(group = "processing")
     @Builder.Default
-    private Property<FetchType> fetchType = Property.of(FetchType.FETCH);
+    private Property<FetchType> fetchType = Property.ofValue(FetchType.FETCH);
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        Logger logger = runContext.logger();
-        String renderedBasePath = runContext.render(this.basePath).as(String.class).orElseThrow();
-        String renderedTableName = runContext.render(this.tableName).as(String.class).orElseThrow();
-        FetchType renderedFetchType = this.fetchType != null ? runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH) : FetchType.FETCH;
+        var logger = runContext.logger();
+        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
+        var rFetchType = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
 
-        logger.info("Reading timeline commits for Hudi table '{}' at '{}'", renderedTableName, renderedBasePath);
+        logger.info("Reading timeline commits for Hudi table '{}' at '{}'", rTableName, rBasePath);
 
-        HoodieTableMetaClient metaClient = getOrInitMetaClient(runContext, renderedBasePath, renderedTableName, HoodieTableType.COPY_ON_WRITE);
-        HoodieActiveTimeline activeTimeline = metaClient.getActiveTimeline();
-        List<HoodieInstant> completedInstants = activeTimeline.getCommitsTimeline().filterCompletedInstants().getInstants();
+        var metaClient = getExistingMetaClient(runContext, rBasePath);
+        var activeTimeline = metaClient.getActiveTimeline();
+        var completedInstants = activeTimeline.getCommitsTimeline().filterCompletedInstants().getInstants();
 
         List<Map<String, Object>> rows = new ArrayList<>();
-        for (HoodieInstant instant : completedInstants) {
-            String instantTime = instant.requestedTime();
-            String action = instant.getAction();
-            String state = instant.getState().name();
-            long totalRecords = 0L;
-
-            try {
-                Option<byte[]> details = activeTimeline.getInstantDetails(instant);
-                if (details.isPresent()) {
-                    String json = new String(details.get(), StandardCharsets.UTF_8);
-                    HoodieCommitMetadata commitMetadata = HoodieCommitMetadata.fromJsonString(json, HoodieCommitMetadata.class);
-                    totalRecords = commitMetadata.fetchTotalRecordsWritten();
-                }
-            } catch (Exception e) {
-                logger.debug("Could not parse commit metadata for instant {}", instantTime, e);
-            }
+        for (var instant : completedInstants) {
+            var commitMetadata = activeTimeline.readCommitMetadata(instant);
 
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("instantTime", instantTime);
-            row.put("action", action);
-            row.put("state", state);
-            row.put("totalRecords", totalRecords);
+            row.put("instantTime", instant.requestedTime());
+            row.put("action", instant.getAction());
+            row.put("state", instant.getState().name());
+            row.put("totalRecords", commitMetadata.fetchTotalRecordsWritten());
             rows.add(row);
         }
 
-        logger.info("Found {} completed commits for table '{}'", rows.size(), renderedTableName);
+        logger.info("Found {} completed commits for table '{}'", rows.size(), rTableName);
 
-        if (renderedFetchType == FetchType.FETCH_ONE) {
-            Map<String, Object> single = rows.isEmpty() ? null : rows.get(rows.size() - 1);
-            return Output.builder()
-                .rows(single != null ? List.of(single) : Collections.emptyList())
-                .row(single)
-                .size(single != null ? 1L : 0L)
-                .build();
-        } else if (renderedFetchType == FetchType.STORE) {
-            File tempFile = runContext.workingDir().createTempFile(".ion").toFile();
-            try (OutputStream output = new FileOutputStream(tempFile)) {
-                for (Map<String, Object> row : rows) {
-                    FileSerde.write(output, row);
-                }
+        return switch (rFetchType) {
+            case FETCH_ONE -> {
+                var single = rows.isEmpty() ? null : rows.getLast();
+                yield Output.builder()
+                    .row(single)
+                    .size(single != null ? 1L : 0L)
+                    .build();
             }
-            URI uri = runContext.storage().putFile(tempFile);
-            return Output.builder()
-                .uri(uri.toString())
-                .size((long) rows.size())
-                .build();
-        } else {
-            return Output.builder()
+            case STORE -> {
+                var tempFile = runContext.workingDir().createTempFile(".ion").toFile();
+                try (var output = new FileOutputStream(tempFile)) {
+                    for (var row : rows) {
+                        FileSerde.write(output, row);
+                    }
+                }
+                yield Output.builder()
+                    .uri(runContext.storage().putFile(tempFile).toString())
+                    .size((long) rows.size())
+                    .build();
+            }
+            default -> Output.builder()
                 .rows(rows)
                 .size((long) rows.size())
                 .build();
-        }
+        };
     }
 
     @Builder
@@ -145,13 +119,13 @@ public class Commits extends AbstractHudiConnection implements RunnableTask<Comm
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "List of commits",
-            description = "List of commit metadata objects."
+            description = "List of commit metadata objects when fetchType is FETCH."
         )
         private List<Map<String, Object>> rows;
 
         @Schema(
             title = "Single commit",
-            description = "Single commit metadata object when fetchType is FETCH_ONE."
+            description = "Single (latest) commit metadata object when fetchType is FETCH_ONE."
         )
         private Map<String, Object> row;
 
