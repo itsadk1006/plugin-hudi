@@ -61,6 +61,38 @@ class TriggerTest {
         assertThat(trigger.poll(context.getKey(), context.getValue(), localTable)).isEmpty();
     }
 
+    // Runs evaluate() on the allowed s3a scheme, served from the local disk by FakeRemoteFileSystem (test core-site.xml).
+    @Test
+    void evaluateOnARemoteScheme() throws Exception {
+        var tableName = "orders_remote";
+        var probe = trigger("s3a://fake-bucket/unused", tableName);
+        var context = TestsUtils.mockTrigger(runContextFactory, probe);
+        var runContext = context.getKey().getRunContext();
+        var localPath = HudiTestUtils.tablePath(runContext).toUri().getPath();
+        var trigger = trigger("s3a://fake-bucket" + localPath, tableName);
+
+        assertThat(trigger.evaluate(context.getKey(), context.getValue())).isEmpty();
+
+        var upsertOutput = Upsert.builder()
+            .id(IdUtils.create())
+            .type(Upsert.class.getName())
+            .basePath(Property.ofValue(HudiTestUtils.tableUri(runContext)))
+            .tableName(Property.ofValue(tableName))
+            .recordKeyField(Property.ofValue("id"))
+            .precombineField(Property.ofValue("ts"))
+            .from(Property.ofValue(List.of(Map.of("id", "1", "ts", 1000L, "val", "A"))))
+            .build()
+            .run(runContext);
+
+        var execution = trigger.evaluate(context.getKey(), context.getValue());
+        assertThat(execution).isPresent();
+        assertThat(execution.get().getTrigger().getVariables())
+            .containsEntry("lastCommitTime", upsertOutput.getCommitInstantTime())
+            .containsEntry("basePath", "s3a://fake-bucket" + localPath);
+
+        assertThat(trigger.evaluate(context.getKey(), context.getValue())).isEmpty();
+    }
+
     @Test
     void rejectsLocalPath() throws Exception {
         for (var basePath : List.of("table", "file:///tmp/table")) {

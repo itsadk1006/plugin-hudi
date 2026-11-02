@@ -5,14 +5,12 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieTableType;
-import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
+import org.apache.hudi.common.util.Option;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,11 +31,7 @@ class CompactTest {
     }
 
     private static void initMorTable(String basePath) throws Exception {
-        HoodieTableMetaClient.newTableBuilder()
-            .setTableType(HoodieTableType.MERGE_ON_READ)
-            .setTableName("orders_mor")
-            .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
-            .initTable(new HadoopStorageConfiguration(new Configuration()), basePath);
+        HudiTestUtils.initTable(basePath, "orders_mor", HoodieTableType.MERGE_ON_READ);
     }
 
     @Test
@@ -53,14 +47,45 @@ class CompactTest {
     }
 
     @Test
+    void compactsLogFilesIntoNewBaseFiles() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+        HudiTestUtils.initTable(basePath, "orders_mor", HoodieTableType.MERGE_ON_READ);
+        HudiTestUtils.upsert(runContext, basePath, "orders_mor", List.of(
+            Map.of("id", "1", "ts", 1000L, "val", "old"),
+            Map.of("id", "2", "ts", 1000L, "val", "old")
+        ));
+        HudiTestUtils.upsert(runContext, basePath, "orders_mor", List.of(Map.of("id", "1", "ts", 2000L, "val", "new")));
+
+        // the update sits in a log file, the base file still holds the old value
+        assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().getDeltaCommitTimeline().filterCompletedInstants().countInstants()).isEqualTo(2);
+        assertThat(HudiTestUtils.readLatestRecords(basePath)).extracting(r -> HudiTestUtils.field(r, "val")).containsOnly("old");
+
+        var task = Compact.builder()
+            .id(IdUtils.create())
+            .type(Compact.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_mor"))
+            .configuration(Property.ofValue(Map.of("hoodie.compact.inline.max.delta.commits", "1")))
+            .build();
+        var runOutput = task.run(runContext);
+
+        assertThat(runOutput.getInstantTime()).isNotBlank();
+        var metaClient = HudiTestUtils.metaClient(basePath);
+        assertThat(metaClient.getActiveTimeline().filterPendingCompactionTimeline().countInstants()).isZero();
+        assertThat(metaClient.getActiveTimeline().getCommitTimeline().filterCompletedInstants().getInstantsAsStream()
+            .map(i -> i.requestedTime())).contains(runOutput.getInstantTime());
+        assertThat(HudiTestUtils.latestBaseFileInstants(basePath)).containsOnly(runOutput.getInstantTime());
+        assertThat(HudiTestUtils.readLatestRecords(basePath))
+            .extracting(r -> HudiTestUtils.field(r, "id") + "=" + HudiTestUtils.field(r, "val"))
+            .containsExactlyInAnyOrder("1=new", "2=old");
+    }
+
+    @Test
     void copyOnWriteTableHasNothingToCompact() throws Exception {
         var runContext = runContextFactory.of();
         var basePath = HudiTestUtils.tableUri(runContext);
-        HoodieTableMetaClient.newTableBuilder()
-            .setTableType(HoodieTableType.COPY_ON_WRITE)
-            .setTableName("orders_mor")
-            .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
-            .initTable(new HadoopStorageConfiguration(new Configuration()), basePath);
+        HudiTestUtils.initTable(basePath, "orders_mor", HoodieTableType.COPY_ON_WRITE);
 
         var runOutput = compact(basePath).run(runContext);
 
@@ -88,5 +113,35 @@ class CompactTest {
         task.kill();
 
         assertThatThrownBy(() -> task.run(runContext)).isInstanceOf(IllegalStateException.class);
+        assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().getInstants()).isEmpty();
+    }
+
+    @Test
+    void executesAPlanLeftPendingByAKilledRun() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+        HudiTestUtils.initTable(basePath, "orders_mor", HoodieTableType.MERGE_ON_READ);
+        HudiTestUtils.upsert(runContext, basePath, "orders_mor", List.of(Map.of("id", "1", "ts", 1000L, "val", "old")));
+        HudiTestUtils.upsert(runContext, basePath, "orders_mor", List.of(Map.of("id", "1", "ts", 2000L, "val", "new")));
+
+        var task = Compact.builder()
+            .id(IdUtils.create())
+            .type(Compact.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_mor"))
+            .configuration(Property.ofValue(Map.of("hoodie.compact.inline.max.delta.commits", "1")))
+            .build();
+        String scheduled;
+        try (var client = task.createJavaWriteClient(runContext, task.baseWriteConfigBuilder(runContext, basePath, "orders_mor").build())) {
+            scheduled = client.scheduleCompaction(Option.empty()).get();
+        }
+        // what a run killed right after scheduling leaves behind: a plan, no inflight instant
+        assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().filterPendingCompactionTimeline().countInstants()).isEqualTo(1);
+
+        var runOutput = task.run(runContext);
+
+        assertThat(runOutput.getInstantTime()).isEqualTo(scheduled);
+        assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().filterPendingCompactionTimeline().countInstants()).isZero();
+        assertThat(HudiTestUtils.readLatestRecords(basePath)).extracting(r -> HudiTestUtils.field(r, "val")).containsOnly("new");
     }
 }

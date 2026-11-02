@@ -103,6 +103,37 @@ class CommitsTest {
     }
 
     @Test
+    void readsClusteringCommits() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+        for (var i = 1; i <= 2; i++) {
+            HudiTestUtils.upsert(runContext, basePath, "orders", List.of(Map.of("id", "" + i, "ts", 1000L, "val", "v")));
+        }
+        var clustered = Cluster.builder()
+            .id(IdUtils.create())
+            .type(Cluster.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders"))
+            .build()
+            .run(runContext);
+        assertThat(clustered.getInstantTime()).isNotBlank();
+
+        var output = Commits.builder()
+            .id(IdUtils.create())
+            .type(Commits.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders"))
+            .build()
+            .run(runContext);
+
+        assertThat(output.getRows()).hasSize(3);
+        var last = output.getRows().getLast();
+        assertThat(last).containsEntry("instantTime", clustered.getInstantTime());
+        assertThat(last.get("action")).isEqualTo("replacecommit");
+        assertThat(last.get("totalRecords")).isEqualTo(2L);
+    }
+
+    @Test
     void failsOnMissingTable() {
         var runContext = runContextFactory.of();
         var task = Commits.builder()

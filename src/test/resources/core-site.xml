@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>fs.s3a.impl</name>
+    <value>io.kestra.plugin.hudi.FakeRemoteFileSystem</value>
+  </property>
+</configuration>

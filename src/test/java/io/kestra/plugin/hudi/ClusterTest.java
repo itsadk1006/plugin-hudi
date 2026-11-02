@@ -5,9 +5,13 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
+import org.apache.hudi.client.clustering.plan.strategy.JavaSizeBasedClusteringPlanStrategy;
+import org.apache.hudi.client.clustering.run.strategy.JavaSortAndSizeExecutionStrategy;
+import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.config.HoodieClusteringConfig;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -33,23 +37,48 @@ class ClusterTest {
     void runCluster() throws Exception {
         var runContext = runContextFactory.of();
         var basePath = HudiTestUtils.tableUri(runContext);
-        Upsert.builder()
-            .id(IdUtils.create())
-            .type(Upsert.class.getName())
-            .basePath(Property.ofValue(basePath))
-            .tableName(Property.ofValue("orders_cluster"))
-            .recordKeyField(Property.ofValue("order_id"))
-            .precombineField(Property.ofValue("updated_at"))
-            .from(Property.ofValue(List.of(
-                Map.of("order_id", "1", "updated_at", 1000L, "status", "CREATED"),
-                Map.of("order_id", "2", "updated_at", 1000L, "status", "PENDING")
-            )))
-            .build()
-            .run(runContext);
+        for (var i = 1; i <= 3; i++) {
+            HudiTestUtils.upsert(runContext, basePath, "orders_cluster", List.of(Map.of("id", "" + i, "ts", 1000L, "val", "v" + i)));
+        }
+        var fileGroupsBefore = HudiTestUtils.latestBaseFileInstants(basePath);
+        assertThat(fileGroupsBefore).hasSize(3);
 
         var runOutput = cluster(basePath).run(runContext);
 
-        assertThat(runOutput).isNotNull();
+        assertThat(runOutput.getInstantTime()).isNotBlank();
+        var timeline = HudiTestUtils.metaClient(basePath).getActiveTimeline();
+        assertThat(timeline.getCompletedReplaceTimeline().getInstantsAsStream().map(i -> i.requestedTime())).contains(runOutput.getInstantTime());
+        assertThat(HudiTestUtils.latestBaseFileInstants(basePath)).containsExactly(runOutput.getInstantTime());
+        assertThat(HudiTestUtils.readLatestRecords(basePath))
+            .extracting(r -> HudiTestUtils.field(r, "id") + "=" + HudiTestUtils.field(r, "val"))
+            .containsExactlyInAnyOrder("1=v1", "2=v2", "3=v3");
+    }
+
+    @Test
+    void killRollsBackAScheduledClusteringPlan() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+        for (var i = 1; i <= 2; i++) {
+            HudiTestUtils.upsert(runContext, basePath, "orders_cluster", List.of(Map.of("id", "" + i, "ts", 1000L, "val", "v" + i)));
+        }
+
+        var task = cluster(basePath);
+        var writeConfig = task.baseWriteConfigBuilder(runContext, basePath, "orders_cluster")
+            .withSchema(new TableSchemaResolver(HudiTestUtils.metaClient(basePath)).getTableSchemaIfPresent(false).get().toString())
+            .withClusteringConfig(HoodieClusteringConfig.newBuilder()
+                .withClusteringPlanStrategyClass(JavaSizeBasedClusteringPlanStrategy.class.getName())
+                .withClusteringExecutionStrategyClass(JavaSortAndSizeExecutionStrategy.class.getName())
+                .build())
+            .build();
+        try (var client = task.createJavaWriteClient(runContext, writeConfig)) {
+            var instant = client.scheduleClustering(Option.empty()).get();
+            assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().filterPendingReplaceOrClusteringTimeline().countInstants()).isEqualTo(1);
+
+            task.kill();
+
+            assertThatThrownBy(() -> task.rollbackIfKilled(client, instant)).isInstanceOf(IllegalStateException.class);
+        }
+        assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().filterPendingReplaceOrClusteringTimeline().countInstants()).isZero();
         assertThat(HudiTestUtils.readLatestRecords(basePath)).hasSize(2);
     }
 
