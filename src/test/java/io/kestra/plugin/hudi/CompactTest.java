@@ -2,19 +2,21 @@ package io.kestra.plugin.hudi;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
-import org.junit.jupiter.api.BeforeAll;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hudi.common.model.HoodieFileFormat;
+import org.apache.hudi.common.model.HoodieTableType;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @KestraTest
 class CompactTest {
@@ -22,48 +24,54 @@ class CompactTest {
     @Inject
     private RunContextFactory runContextFactory;
 
-    @BeforeAll
-    static void setupHadoop() {
-        AbstractHudiConnection.disableNativeIOOnWindows();
-        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
-            File hadoopHome = new File("C:\\hadoop");
-            if (hadoopHome.exists()) {
-                System.setProperty("hadoop.home.dir", hadoopHome.getAbsolutePath());
-            }
-        }
+    private static Compact compact(String basePath) {
+        return Compact.builder()
+            .id(IdUtils.create())
+            .type(Compact.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_mor"))
+            .build();
     }
 
+    private static void initMorTable(String basePath) throws Exception {
+        HoodieTableMetaClient.newTableBuilder()
+            .setTableType(HoodieTableType.MERGE_ON_READ)
+            .setTableName("orders_mor")
+            .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
+            .initTable(new HadoopStorageConfiguration(new Configuration()), basePath);
+    }
 
     @Test
     void runCompact(@TempDir Path tempDir) throws Exception {
-        RunContext runContext = runContextFactory.of();
-        String basePath = tempDir.toUri().toString();
+        var basePath = tempDir.toUri().toString();
+        initMorTable(basePath);
 
-        Compact task = Compact.builder()
-            .id(IdUtils.create())
-            .type(Compact.class.getName())
-            .basePath(Property.of(basePath))
-            .tableName(Property.of("orders_mor"))
-            .build();
+        var runOutput = compact(basePath).run(runContextFactory.of());
 
-        Compact.Output runOutput = task.run(runContext);
         assertThat(runOutput).isNotNull();
+        assertThat(runOutput.getInstantTime()).isNull();
     }
 
     @Test
-    void testKillCancellation(@TempDir Path tempDir) {
-        String basePath = tempDir.toUri().toString();
+    void failsOnMissingTable(@TempDir Path tempDir) {
+        var task = compact(tempDir.toUri().toString());
+        var runContext = runContextFactory.of();
 
-        Compact task = Compact.builder()
-            .id(IdUtils.create())
-            .type(Compact.class.getName())
-            .basePath(Property.of(basePath))
-            .tableName(Property.of("orders_mor"))
-            .build();
+        assertThatThrownBy(() -> task.run(runContext))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("No Hudi table at");
+        assertThat(tempDir.resolve(".hoodie")).doesNotExist();
+    }
 
+    @Test
+    void testKillCancellation(@TempDir Path tempDir) throws Exception {
+        var basePath = tempDir.toUri().toString();
+        initMorTable(basePath);
+
+        var task = compact(basePath);
         task.kill();
 
-        RunContext runContext = runContextFactory.of();
-        assertThrows(IllegalStateException.class, () -> task.run(runContext));
+        var runContext = runContextFactory.of();
+        assertThatThrownBy(() -> task.run(runContext)).isInstanceOf(IllegalStateException.class);
     }
 }

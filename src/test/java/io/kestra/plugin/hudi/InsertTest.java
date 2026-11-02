@@ -42,10 +42,10 @@ class InsertTest {
         Insert task = Insert.builder()
             .id(IdUtils.create())
             .type(Insert.class.getName())
-            .basePath(Property.of(basePath))
-            .tableName(Property.of("orders_insert"))
-            .recordKeyField(Property.of("order_id"))
-            .from(Property.of(List.of(
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_insert"))
+            .recordKeyField(Property.ofValue("order_id"))
+            .from(Property.ofValue(List.of(
                 Map.of("order_id", "201", "product", "Keyboard", "price", 45.0),
                 Map.of("order_id", "202", "product", "Mouse", "price", 25.0)
             )))
@@ -56,5 +56,11 @@ class InsertTest {
         assertThat(runOutput).isNotNull();
         assertThat(runOutput.getRecordCount()).isEqualTo(2L);
         assertThat(runOutput.getCommitInstantTime()).isNotBlank();
+
+        var rows = HudiTestUtils.readLatestRecords(basePath);
+        assertThat(rows).hasSize(2);
+        assertThat(rows)
+            .extracting(r -> HudiTestUtils.field(r, "product"))
+            .containsExactlyInAnyOrder("Keyboard", "Mouse");
     }
 }

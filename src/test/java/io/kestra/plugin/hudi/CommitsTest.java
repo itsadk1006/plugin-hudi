@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @KestraTest
 class CommitsTest {
@@ -39,11 +40,11 @@ class CommitsTest {
         Upsert task = Upsert.builder()
             .id(IdUtils.create())
             .type(Upsert.class.getName())
-            .basePath(Property.of(basePath))
-            .tableName(Property.of("orders"))
-            .recordKeyField(Property.of("order_id"))
-            .precombineField(Property.of("updated_at"))
-            .from(Property.of(List.of(
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders"))
+            .recordKeyField(Property.ofValue("order_id"))
+            .precombineField(Property.ofValue("updated_at"))
+            .from(Property.ofValue(List.of(
                 Map.of("order_id", "101", "updated_at", 1000L, "status", "SUCCESS")
             )))
             .build();
@@ -60,9 +61,9 @@ class CommitsTest {
         Commits task = Commits.builder()
             .id(IdUtils.create())
             .type(Commits.class.getName())
-            .basePath(Property.of(basePath))
-            .tableName(Property.of("orders"))
-            .fetchType(Property.of(FetchType.FETCH))
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders"))
+            .fetchType(Property.ofValue(FetchType.FETCH))
             .build();
 
         Commits.Output runOutput = task.run(runContext);
@@ -74,6 +75,7 @@ class CommitsTest {
         assertThat(firstCommit).containsKey("instantTime");
         assertThat(firstCommit).containsKey("action");
         assertThat(firstCommit.get("state")).isEqualTo("COMPLETED");
+        assertThat(firstCommit.get("totalRecords")).isEqualTo(1L);
     }
 
     @Test
@@ -86,9 +88,9 @@ class CommitsTest {
         Commits task = Commits.builder()
             .id(IdUtils.create())
             .type(Commits.class.getName())
-            .basePath(Property.of(basePath))
-            .tableName(Property.of("orders"))
-            .fetchType(Property.of(FetchType.FETCH_ONE))
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders"))
+            .fetchType(Property.ofValue(FetchType.FETCH_ONE))
             .build();
 
         Commits.Output runOutput = task.run(runContext);
@@ -97,6 +99,24 @@ class CommitsTest {
         assertThat(runOutput.getSize()).isEqualTo(1L);
         assertThat(runOutput.getRow()).isNotNull();
         assertThat(runOutput.getRow()).containsKey("instantTime");
+        assertThat(runOutput.getRow().get("totalRecords")).isEqualTo(1L);
+        assertThat(runOutput.getRows()).isNull();
+    }
+
+    @Test
+    void failsOnMissingTable(@TempDir Path tempDir) {
+        var task = Commits.builder()
+            .id(IdUtils.create())
+            .type(Commits.class.getName())
+            .basePath(Property.ofValue(tempDir.toUri().toString()))
+            .tableName(Property.ofValue("orders"))
+            .build();
+
+        var runContext = runContextFactory.of();
+        assertThatThrownBy(() -> task.run(runContext))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("No Hudi table at");
+        assertThat(tempDir.resolve(".hoodie")).doesNotExist();
     }
 
     @Test
@@ -109,9 +129,9 @@ class CommitsTest {
         Commits task = Commits.builder()
             .id(IdUtils.create())
             .type(Commits.class.getName())
-            .basePath(Property.of(basePath))
-            .tableName(Property.of("orders"))
-            .fetchType(Property.of(FetchType.STORE))
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders"))
+            .fetchType(Property.ofValue(FetchType.STORE))
             .build();
 
         Commits.Output runOutput = task.run(runContext);
