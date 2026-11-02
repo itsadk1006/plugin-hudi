@@ -40,7 +40,9 @@ import org.apache.hudi.common.util.Option;
 )
 @Schema(
     title = "Compact an Apache Hudi table",
-    description = "Trigger the compaction table service on an Apache Hudi table. Compaction only applies to merge-on-read tables created outside this plugin, since this plugin creates copy-on-write tables only."
+    description = """
+        Trigger the compaction table service on an Apache Hudi table. Compaction only applies to merge-on-read tables created outside this plugin, since this plugin creates copy-on-write tables only.
+        """
 )
 public class Compact extends AbstractHudiMaintenance implements RunnableTask<Compact.Output> {
 
@@ -61,26 +63,24 @@ public class Compact extends AbstractHudiMaintenance implements RunnableTask<Com
         var writeConfig = baseWriteConfigBuilder(runContext, rBasePath, rTableName).build();
 
         try (var client = createJavaWriteClient(runContext, writeConfig)) {
-            activeClient.set(client);
             ensureNotKilled("before execution");
 
-            var compactionInstant = client.scheduleCompaction(Option.empty());
+            // A plan left pending by a killed or failed run must be executed first, it blocks its file groups from a new plan
+            var pending = metaClient.getActiveTimeline().filterPendingCompactionTimeline().firstInstant();
+            var compactionInstant = pending.isPresent()
+                ? Option.of(pending.get().requestedTime())
+                : client.scheduleCompaction(Option.empty());
             if (compactionInstant.isPresent()) {
                 var instant = compactionInstant.get();
-                runningInstant.set(instant);
+                ensureNotKilled("after scheduling, the plan " + instant + " stays pending and runs on the next execution");
 
-                rollbackIfKilled(client, instant);
-
-                client.compact(instant);
+                client.compact(instant, true);
                 logger.info("Successfully completed compaction for instant {} on table '{}'", instant, rTableName);
                 return Output.builder().instantTime(instant).build();
             } else {
                 logger.info("No compaction scheduled for table '{}'", rTableName);
                 return Output.builder().instantTime(null).build();
             }
-        } finally {
-            activeClient.set(null);
-            runningInstant.set(null);
         }
     }
 
@@ -89,7 +89,9 @@ public class Compact extends AbstractHudiMaintenance implements RunnableTask<Com
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Compaction instant timestamp",
-            description = "The timestamp of the scheduled and executed compaction instant."
+            description = """
+                The timestamp of the scheduled and executed compaction instant.
+                """
         )
         private String instantTime;
     }

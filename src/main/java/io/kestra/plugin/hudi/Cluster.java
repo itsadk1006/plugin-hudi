@@ -11,8 +11,10 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
+import org.apache.hudi.client.HoodieJavaWriteClient;
 import org.apache.hudi.client.clustering.plan.strategy.JavaSizeBasedClusteringPlanStrategy;
 import org.apache.hudi.client.clustering.run.strategy.JavaSortAndSizeExecutionStrategy;
+import org.apache.hudi.common.model.HoodieAvroPayload;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieClusteringConfig;
@@ -43,7 +45,9 @@ import org.apache.hudi.config.HoodieClusteringConfig;
 )
 @Schema(
     title = "Cluster an Apache Hudi table",
-    description = "Trigger clustering table service on an Apache Hudi table."
+    description = """
+        Trigger clustering table service on an Apache Hudi table.
+        """
 )
 public class Cluster extends AbstractHudiMaintenance implements RunnableTask<Cluster.Output> {
 
@@ -68,14 +72,11 @@ public class Cluster extends AbstractHudiMaintenance implements RunnableTask<Clu
             .build();
 
         try (var client = createJavaWriteClient(runContext, writeConfig)) {
-            activeClient.set(client);
             ensureNotKilled("before execution");
 
             var clusteringInstant = client.scheduleClustering(Option.empty());
             if (clusteringInstant.isPresent()) {
                 var instant = clusteringInstant.get();
-                runningInstant.set(instant);
-
                 rollbackIfKilled(client, instant);
 
                 client.cluster(instant, true);
@@ -85,9 +86,14 @@ public class Cluster extends AbstractHudiMaintenance implements RunnableTask<Clu
                 logger.info("No clustering scheduled for table '{}'", rTableName);
                 return Output.builder().instantTime(null).build();
             }
-        } finally {
-            activeClient.set(null);
-            runningInstant.set(null);
+        }
+    }
+
+    // Pending clustering plans can be rolled back, and it runs on the thread that owns the client
+    void rollbackIfKilled(HoodieJavaWriteClient<HoodieAvroPayload> client, String instant) {
+        if (isKilled.get()) {
+            client.rollback(instant);
+            throw new IllegalStateException("Cluster task was killed after scheduling, instant " + instant + " was rolled back");
         }
     }
 
@@ -96,7 +102,9 @@ public class Cluster extends AbstractHudiMaintenance implements RunnableTask<Clu
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Clustering instant timestamp",
-            description = "The timestamp of the scheduled and executed clustering instant."
+            description = """
+                The timestamp of the scheduled and executed clustering instant.
+                """
         )
         private String instantTime;
     }

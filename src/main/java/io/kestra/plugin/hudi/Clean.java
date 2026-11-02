@@ -38,7 +38,9 @@ import lombok.experimental.SuperBuilder;
 )
 @Schema(
     title = "Clean an Apache Hudi table",
-    description = "Trigger clean table service on an Apache Hudi table to remove older file slices."
+    description = """
+        Trigger clean table service on an Apache Hudi table to remove older file slices.
+        """
 )
 public class Clean extends AbstractHudiMaintenance implements RunnableTask<Clean.Output> {
 
@@ -55,11 +57,9 @@ public class Clean extends AbstractHudiMaintenance implements RunnableTask<Clean
         var writeConfig = baseWriteConfigBuilder(runContext, rBasePath, rTableName).build();
 
         try (var client = createJavaWriteClient(runContext, writeConfig)) {
-            activeClient.set(client);
             ensureNotKilled("before execution");
 
             var cleanInstant = client.createNewInstantTime(false);
-            runningInstant.set(cleanInstant);
 
             ensureNotKilled("during execution");
 
@@ -71,15 +71,7 @@ public class Clean extends AbstractHudiMaintenance implements RunnableTask<Clean
                 .instantTime(cleanInstant)
                 .filesCleaned(totalFilesCleaned)
                 .build();
-        } finally {
-            activeClient.set(null);
-            runningInstant.set(null);
         }
-    }
-
-    @Override
-    protected boolean rollbackOnKill() {
-        return false;
     }
 
     @Builder
@@ -87,13 +79,17 @@ public class Clean extends AbstractHudiMaintenance implements RunnableTask<Clean
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Clean instant timestamp",
-            description = "The timestamp of the executed clean instant."
+            description = """
+                The timestamp of the executed clean instant.
+                """
         )
         private String instantTime;
 
         @Schema(
             title = "Number of files cleaned",
-            description = "The total number of file slices deleted by the clean service."
+            description = """
+                The total number of file slices deleted by the clean service.
+                """
         )
         private Long filesCleaned;
     }

@@ -15,6 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 
 import java.io.FileOutputStream;
 import java.util.ArrayList;
@@ -48,13 +49,17 @@ import java.util.Map;
 )
 @Schema(
     title = "List timeline commits for an Apache Hudi table",
-    description = "Read the active timeline of an Apache Hudi table and return commit metadata."
+    description = """
+        Read the active timeline of an Apache Hudi table and return commit metadata.
+        """
 )
 public class Commits extends AbstractHudiConnection implements RunnableTask<Commits.Output> {
 
     @Schema(
         title = "The fetch type",
-        description = "How to return the fetched commits: FETCH (default, returns list in memory), FETCH_ONE (single row), or STORE (stores as internal storage file)."
+        description = """
+            How to return the fetched commits: FETCH (default, returns list in memory), FETCH_ONE (single row), or STORE (stores as internal storage file).
+            """
     )
     @PluginProperty(group = "processing")
     @Builder.Default
@@ -73,11 +78,15 @@ public class Commits extends AbstractHudiConnection implements RunnableTask<Comm
         var activeTimeline = metaClient.getActiveTimeline();
         var completedInstants = activeTimeline.getCommitsTimeline().filterCompletedInstants().getInstants();
 
-        List<Map<String, Object>> rows = new ArrayList<>();
+        var rows = new ArrayList<Map<String, Object>>();
         for (var instant : completedInstants) {
-            var commitMetadata = activeTimeline.readCommitMetadata(instant);
+            var isReplace = HoodieTimeline.REPLACE_COMMIT_ACTION.equals(instant.getAction())
+                || HoodieTimeline.CLUSTERING_ACTION.equals(instant.getAction());
+            var commitMetadata = isReplace
+                ? activeTimeline.readReplaceCommitMetadata(instant)
+                : activeTimeline.readCommitMetadata(instant);
 
-            Map<String, Object> row = new LinkedHashMap<>();
+            var row = new LinkedHashMap<String, Object>();
             row.put("instantTime", instant.requestedTime());
             row.put("action", instant.getAction());
             row.put("state", instant.getState().name());
@@ -119,25 +128,33 @@ public class Commits extends AbstractHudiConnection implements RunnableTask<Comm
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "List of commits",
-            description = "List of commit metadata objects when fetchType is FETCH."
+            description = """
+                List of commit metadata objects when fetchType is FETCH.
+                """
         )
         private List<Map<String, Object>> rows;
 
         @Schema(
             title = "Single commit",
-            description = "Single (latest) commit metadata object when fetchType is FETCH_ONE."
+            description = """
+                Single (latest) commit metadata object when fetchType is FETCH_ONE.
+                """
         )
         private Map<String, Object> row;
 
         @Schema(
             title = "Internal storage URI",
-            description = "URI of stored commits file when fetchType is STORE."
+            description = """
+                URI of stored commits file when fetchType is STORE.
+                """
         )
         private String uri;
 
         @Schema(
             title = "Number of fetched commits",
-            description = "Total number of commits retrieved from the timeline."
+            description = """
+                Total number of commits retrieved from the timeline.
+                """
         )
         private Long size;
     }
