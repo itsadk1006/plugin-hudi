@@ -143,4 +143,14 @@ class DeleteTest {
             .hasMessageContaining("No Hudi table at");
         assertThat(HudiTestUtils.tablePath(runContext).resolve(".hoodie")).doesNotExist();
     }
+
+    @Test
+    void invalidJsonInFromNamesTheProperty() {
+        var runContext = runContextFactory.of();
+
+        assertThatThrownBy(() -> HudiRecordUtils.parseDeleteKeys(runContext, "[{\"order_id\": ", "order_id", null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("'from'")
+            .hasMessageContaining("not valid JSON");
+    }
 }

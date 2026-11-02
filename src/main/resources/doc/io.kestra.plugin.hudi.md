@@ -12,7 +12,7 @@ Every task and the trigger take the same connection properties:
 
 `configuration` is marked as a secret and is hidden from logs. Store credentials in [secrets](https://kestra.io/docs/concepts/secret) and reference them with `{{ secret('NAME') }}`. To share the same connection across flows, use [plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults).
 
-Only the file systems present on the plugin classpath can be used. HDFS paths and local paths work out of the box; `s3a://`, GCS and Azure paths need the matching Hadoop connector, which is not bundled yet.
+Only the file systems present on the plugin classpath can be used. HDFS paths and local paths work out of the box; `s3a://`, `gs://` and `abfs://` paths (including the `s3a://`, `gs://` and `abfs://` examples of this plugin) need the matching Hadoop connector on the worker classpath, which is not bundled.
 
 A local table lives and dies with the working directory of the task. To use one table from several tasks, wrap them in `io.kestra.plugin.core.flow.WorkingDirectory` so they share the directory.
 
@@ -40,7 +40,7 @@ Both tasks create the table (copy on write) when `basePath` has none, and fail w
 
 `Compact`, `Cluster` and `Clean` run the matching Hudi table service. They never create a table: when `basePath` has no Hudi table, the task fails.
 
-- `Compact` only does work on merge on read tables and returns a null `instantTime` when nothing is scheduled.
+- `Compact` only does work on merge on read tables created outside this plugin, since this plugin creates copy on write tables only. It returns a null `instantTime` when nothing is scheduled.
 - `Cluster` returns a null `instantTime` when no clustering plan is scheduled.
 - `Clean` returns `instantTime` and `filesCleaned`.
 

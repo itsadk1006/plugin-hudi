@@ -230,7 +230,13 @@ public abstract class HudiRecordUtils {
         // Kestra renders a list or map property as its JSON text
         var trimmed = str.strip();
         if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-            return parseDeleteKeys(runContext, JacksonMapper.ofJson().readValue(trimmed, Object.class), recordKeyField, partitionField);
+            Object parsed;
+            try {
+                parsed = JacksonMapper.ofJson().readValue(trimmed, Object.class);
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new IllegalArgumentException("Property 'from' is not valid JSON: " + e.getOriginalMessage(), e);
+            }
+            return parseDeleteKeys(runContext, parsed, recordKeyField, partitionField);
         }
 
         keys.add(new HoodieKey(str, ""));

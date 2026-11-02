@@ -31,6 +31,10 @@ final class HudiTestUtils {
     }
 
     static List<GenericRecord> readLatestRecords(String basePath) throws IOException {
+        return readLatestRecords(basePath, "");
+    }
+
+    static List<GenericRecord> readLatestRecords(String basePath, String... partitions) throws IOException {
         var hadoopConf = new Configuration();
         var metaClient = HoodieTableMetaClient.builder()
             .setConf(new HadoopStorageConfiguration(hadoopConf))
@@ -43,11 +47,13 @@ final class HudiTestUtils {
             metaClient,
             HoodieMetadataConfig.newBuilder().enable(false).build()
         )) {
-            for (var baseFile : view.getLatestBaseFiles("").toList()) {
-                try (var reader = AvroParquetReader.<GenericRecord>builder(new Path(baseFile.getPath())).withConf(hadoopConf).build()) {
-                    GenericRecord record;
-                    while ((record = reader.read()) != null) {
-                        records.add(record);
+            for (var partition : partitions) {
+                for (var baseFile : view.getLatestBaseFiles(partition).toList()) {
+                    try (var reader = AvroParquetReader.<GenericRecord>builder(new Path(baseFile.getPath())).withConf(hadoopConf).build()) {
+                        GenericRecord record;
+                        while ((record = reader.read()) != null) {
+                            records.add(record);
+                        }
                     }
                 }
             }

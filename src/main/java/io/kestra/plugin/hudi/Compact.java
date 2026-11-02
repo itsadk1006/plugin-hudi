@@ -40,7 +40,7 @@ import org.apache.hudi.common.util.Option;
 )
 @Schema(
     title = "Compact an Apache Hudi table",
-    description = "Trigger compaction table service on an Apache Hudi table."
+    description = "Trigger the compaction table service on an Apache Hudi table. Compaction only applies to merge-on-read tables created outside this plugin, since this plugin creates copy-on-write tables only."
 )
 public class Compact extends AbstractHudiMaintenance implements RunnableTask<Compact.Output> {
 

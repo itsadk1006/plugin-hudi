@@ -70,6 +70,17 @@ class UpsertTest {
                 .run(runContext);
 
             assertThat(output.getRecordCount()).isEqualTo(2L);
+
+            var rows = HudiTestUtils.readLatestRecords(basePath, "eu", "us");
+            assertThat(rows).extracting(r -> HudiTestUtils.field(r, "order_id")).containsExactlyInAnyOrder("1", "2", "3");
+            assertThat(rows)
+                .filteredOn(r -> HudiTestUtils.field(r, "order_id").equals("2"))
+                .singleElement()
+                .satisfies(r -> assertThat(HudiTestUtils.field(r, "amount")).isEqualTo("25.0"));
+            assertThat(rows)
+                .filteredOn(r -> HudiTestUtils.field(r, "order_id").equals("1"))
+                .singleElement()
+                .satisfies(r -> assertThat(HudiTestUtils.field(r, "amount")).isEqualTo("10.5"));
         }
     }
 
