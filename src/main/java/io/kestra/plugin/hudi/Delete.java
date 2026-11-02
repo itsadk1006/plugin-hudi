@@ -7,6 +7,7 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.apache.hudi.common.model.HoodieKey;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -51,7 +52,8 @@ import java.util.Set;
 @Schema(
     title = "Delete data from an Apache Hudi table",
     description = """
-        Delete records from an Apache Hudi table using HoodieJavaWriteClient.
+        Delete records from an Apache Hudi table using HoodieJavaWriteClient. \
+        On a partitioned table, `from` must contain the partition path of each record, otherwise the task fails instead of deleting nothing.
         """
 )
 public class Delete extends AbstractHudiConnection implements RunnableTask<Delete.Output> {
@@ -78,7 +80,9 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
     @Schema(
         title = "Source keys or records",
         description = """
-            Keys or records to delete. Can be a list of maps, strings, or a Kestra internal storage URI (kestra://...).
+            Keys or records to delete. Can be a list of maps, strings, or a Kestra internal storage URI (kestra://...). \
+            When `partitionPathField` is set (partitioned table) every entry must be a record containing both the record key field and the partition path field, \
+            because a bare key cannot be located; the task fails otherwise. Bare keys only work on non-partitioned tables.
             """
     )
     @PluginProperty(group = "processing")
@@ -107,6 +111,9 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
         }
 
         getExistingMetaClient(runContext, rBasePath);
+        if (rPartition != null) {
+            requirePartitionPaths(keys, rTableName);
+        }
 
         var props = new Properties();
         props.setProperty("hoodie.datasource.write.recordkey.field", rRecordKey);
@@ -138,6 +145,16 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
                 .commitInstantTime(instantTime)
                 .affectedPartitions(new ArrayList<>(affectedPartitions))
                 .build();
+        }
+    }
+
+    static void requirePartitionPaths(List<HoodieKey> keys, String tableName) {
+        for (var i = 0; i < keys.size(); i++) {
+            var partition = keys.get(i).getPartitionPath();
+            if (partition == null || partition.isEmpty()) {
+                throw new IllegalArgumentException("Entry " + i + " of 'from' has no partition path, but 'partitionPathField' is set for partitioned table '" + tableName + "': "
+                    + "a bare key cannot be located. Pass records that contain both the record key and the partition field in 'from', not keys alone");
+            }
         }
     }
 

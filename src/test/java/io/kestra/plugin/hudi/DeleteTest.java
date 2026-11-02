@@ -84,6 +84,39 @@ class DeleteTest {
     }
 
     @Test
+    void bareKeysOnPartitionedTableFailInsteadOfDeletingNothing() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+
+        Insert.builder()
+            .id(IdUtils.create())
+            .type(Insert.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_bare"))
+            .recordKeyField(Property.ofValue("order_id"))
+            .partitionPathField(Property.ofValue("region"))
+            .from(Property.ofValue(List.of(Map.of("order_id", "u3", "region", "us", "amount", 1.0))))
+            .build()
+            .run(runContext);
+
+        var task = Delete.builder()
+            .id(IdUtils.create())
+            .type(Delete.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_bare"))
+            .recordKeyField(Property.ofValue("order_id"))
+            .partitionPathField(Property.ofValue("region"))
+            .from(Property.ofValue(List.of("u3")))
+            .build();
+
+        assertThatThrownBy(() -> task.run(runContext))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("'from'")
+            .hasMessageContaining("partition path")
+            .hasMessageContaining("partitionPathField");
+    }
+
+    @Test
     void runDelete() throws Exception {
         RunContext runContext = runContextFactory.of();
         String basePath = HudiTestUtils.tableUri(runContext);
