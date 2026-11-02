@@ -2,7 +2,7 @@ group: io.kestra.plugin.hudi
 name: "hudi"
 title: "Apache Hudi"
 description: "Apache Hudi plugin for Kestra"
-body: ""
+body: "Apache Hudi (Hadoop Upsert Delete and Incremental) plugin for Kestra providing stream and batch table services, upserts, deletes, clustering, compaction, cleaning, and active timeline polling triggers."
 videos: []
 createdBy: "Kestra Core Team"
 managedBy: "Kestra Core Team"
