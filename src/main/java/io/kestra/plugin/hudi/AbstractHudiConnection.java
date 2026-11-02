@@ -98,11 +98,12 @@ public abstract class AbstractHudiConnection extends Task {
         Allowed configuration keys start with `hoodie.`, `fs.s3a.`, `fs.gs.`, `fs.azure.` or `fs.abfs.`. \
         Within `hoodie.`, only write and table tuning keys are accepted: record key, precombine and partition path fields, table name and type, index type, \
         insert, upsert, bulk insert and delete parallelism, `hoodie.cleaner.*`, `hoodie.clean.*`, `hoodie.compact.*`, `hoodie.clustering.*`, `hoodie.archive.*`, `hoodie.keep.*`, \
-        `hoodie.parquet.*`, `hoodie.logfile.*`, `hoodie.copyonwrite.*` and `hoodie.index.bloom.*`. Other `hoodie.` keys are rejected, as is any key ending with `.path` or `.dir`, \
+        `hoodie.parquet.*`, `hoodie.logfile.*`, `hoodie.copyonwrite.*` and `hoodie.index.bloom.*`. Other `hoodie.` keys are rejected, as is any key ending with `.path`, `.dir` or `.pattern`, \
         or containing `.class`, `.impl`, `.factory` or `classname`. \
         Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors`, `binding`, `keyfile` or `keytab`, are not allowed; \
         the credential and endpoint keys `access.key`, `secret.key`, `session.token`, `endpoint`, `path.style.access` and `region` (e.g. `fs.s3a.access.key`) are always accepted. \
-        `fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`.
+        `fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`. \
+        Values must be literal: variable expansion is not applied and values containing `${` are rejected.
         """;
 
     @Schema(
@@ -139,6 +140,7 @@ public abstract class AbstractHudiConnection extends Task {
         disableNativeIOOnWindows();
 
         var hadoopConf = new Configuration();
+        hadoopConf.setRestrictSystemProps(true);
         if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
             if (System.getProperty("hadoop.home.dir") == null && System.getenv("HADOOP_HOME") == null) {
                 var hadoopHome = new File("C:\\hadoop");
@@ -163,6 +165,9 @@ public abstract class AbstractHudiConnection extends Task {
             rendered.forEach((key, val) -> {
                 validateConfigurationKey(key);
                 if (val != null) {
+                    if (val.contains("${")) {
+                        throw new IllegalArgumentException("Configuration value for key '" + key + "' must be a literal value, variable expansion is not supported");
+                    }
                     result.put(key, val);
                 }
             });
@@ -197,7 +202,7 @@ public abstract class AbstractHudiConnection extends Task {
     private static final List<String> DENIED_HOODIE_FRAGMENTS = List.of(
         "callback", "lock.provider", ".class", ".impl", ".factory", "classname", ".url", ".endpoint", "compaction.strategy"
     );
-    private static final List<String> DENIED_KEY_SUFFIXES = List.of(".path", ".dir");
+    private static final List<String> DENIED_KEY_SUFFIXES = List.of(".path", ".dir", ".pattern");
 
     /** Key shapes that are not accepted under the storage prefixes, except the explicit keys below. */
     private static final List<String> DENIED_STORAGE_SUFFIXES = List.of(".impl", ".class", ".classname", ".factory", ".provider");

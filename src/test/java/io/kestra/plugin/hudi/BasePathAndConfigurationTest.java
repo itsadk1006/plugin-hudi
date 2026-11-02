@@ -169,6 +169,30 @@ class BasePathAndConfigurationTest {
     }
 
     @Test
+    void valuesMustBeLiteral() throws Exception {
+        var runContext = runContextFactory.of();
+
+        assertThatThrownBy(() -> AbstractHudiConnection.hadoopConfiguration(runContext, Property.ofValue(Map.of("fs.s3a.access.key", "pre-${some.name}"))))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("'fs.s3a.access.key'")
+            .hasMessageContaining("literal");
+
+        var hadoopConf = AbstractHudiConnection.hadoopConfiguration(runContext, Property.ofValue(Map.of("fs.s3a.access.key", "plain$value{x}")));
+        assertThat(hadoopConf.get("fs.s3a.access.key")).isEqualTo("plain$value{x}");
+    }
+
+    @Test
+    void patternKeysAreRejected() {
+        var runContext = runContextFactory.of();
+
+        for (var key : List.of("hoodie.cleaner.some.regex.pattern", "hoodie.compact.some.pattern", "fs.s3a.some.pattern")) {
+            assertThatThrownBy(() -> AbstractHudiConnection.hadoopConfiguration(runContext, Property.ofValue(Map.of(key, "value"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("'" + key + "' is not allowed");
+        }
+    }
+
+    @Test
     void deniedConfigurationKeyIsRejectedByTask() {
         var runContext = runContextFactory.of();
         var task = Compact.builder()
