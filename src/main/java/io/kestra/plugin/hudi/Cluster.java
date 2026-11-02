@@ -11,7 +11,11 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
+import org.apache.hudi.client.clustering.plan.strategy.JavaSizeBasedClusteringPlanStrategy;
+import org.apache.hudi.client.clustering.run.strategy.JavaSortAndSizeExecutionStrategy;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.config.HoodieClusteringConfig;
 
 
 @SuperBuilder
@@ -51,9 +55,17 @@ public class Cluster extends AbstractHudiMaintenance implements RunnableTask<Clu
 
         logger.info("Clustering Hudi table '{}' at '{}'", rTableName, rBasePath);
 
-        getExistingMetaClient(runContext, rBasePath);
+        var metaClient = getExistingMetaClient(runContext, rBasePath);
 
-        var writeConfig = baseWriteConfigBuilder(runContext, rBasePath, rTableName).build();
+        var writeConfigBuilder = baseWriteConfigBuilder(runContext, rBasePath, rTableName);
+        new TableSchemaResolver(metaClient).getTableSchemaIfPresent(false)
+            .ifPresent(tableSchema -> writeConfigBuilder.withSchema(tableSchema.toString()));
+        var writeConfig = writeConfigBuilder
+            .withClusteringConfig(HoodieClusteringConfig.newBuilder()
+                .withClusteringPlanStrategyClass(JavaSizeBasedClusteringPlanStrategy.class.getName())
+                .withClusteringExecutionStrategyClass(JavaSortAndSizeExecutionStrategy.class.getName())
+                .build())
+            .build();
 
         try (var client = createJavaWriteClient(runContext, writeConfig)) {
             activeClient.set(client);
