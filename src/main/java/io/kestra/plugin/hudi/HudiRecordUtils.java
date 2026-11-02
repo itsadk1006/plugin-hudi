@@ -1,5 +1,6 @@
 package io.kestra.plugin.hudi;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
@@ -231,7 +232,7 @@ public abstract class HudiRecordUtils {
             Object parsed;
             try {
                 parsed = JacksonMapper.ofJson().readValue(trimmed, Object.class);
-            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            } catch (JsonProcessingException e) {
                 throw new IllegalArgumentException("Property 'from' is not valid JSON: " + e.getOriginalMessage(), e);
             }
             return parseDeleteKeys(runContext, parsed, recordKeyField, partitionField);

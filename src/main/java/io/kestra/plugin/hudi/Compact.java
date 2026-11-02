@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 import org.apache.hudi.common.model.HoodieTableType;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.util.Option;
 
 
@@ -65,10 +66,16 @@ public class Compact extends AbstractHudiMaintenance implements RunnableTask<Com
         try (var client = createJavaWriteClient(runContext, writeConfig)) {
             ensureNotKilled("before execution");
 
-            // A plan left pending by a killed or failed run must be executed first, it blocks its file groups from a new plan
-            var pending = metaClient.getActiveTimeline().filterPendingCompactionTimeline().firstInstant();
-            var compactionInstant = pending.isPresent()
-                ? Option.of(pending.get().requestedTime())
+            // A plan left requested by a killed or failed run is executed first, it blocks its file groups from a new plan.
+            // Inflight instants may be running in another engine: they are never rolled back nor executed here.
+            var pendingInstants = metaClient.getActiveTimeline().filterPendingCompactionTimeline().getInstants();
+            var requested = pendingInstants.stream().filter(HoodieInstant::isRequested).findFirst();
+            if (requested.isEmpty() && !pendingInstants.isEmpty()) {
+                throw new IllegalStateException("Compaction instant " + pendingInstants.get(0).requestedTime() + " on table '" + rTableName
+                    + "' is inflight and may be running elsewhere, it is left untouched. Retry once it has completed or been rolled back");
+            }
+            var compactionInstant = requested.isPresent()
+                ? Option.of(requested.get().requestedTime())
                 : client.scheduleCompaction(Option.empty());
             if (compactionInstant.isPresent()) {
                 var instant = compactionInstant.get();

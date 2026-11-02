@@ -23,7 +23,7 @@ Single-module Kestra plugin using `hudi-java-client` 1.2.0 and Hadoop 3.4.3 (run
 
 - `io.kestra.plugin.hudi.AbstractHudiConnection`: Base task providing `basePath` resolution, the `configuration` allow-list, Hadoop configuration and Hudi write client initialization.
 - `io.kestra.plugin.hudi.AbstractHudiWrite`: Base of `Upsert` and `Insert`, holding the shared properties (record key, precombine, partition, schema, `from`) and the write and commit logic.
-- `io.kestra.plugin.hudi.AbstractHudiMaintenance`: Base of `Compact`, `Cluster` and `Clean`, with the `kill()` flag. `kill()` only sets the flag, the running thread rolls back a scheduled instant itself.
+- `io.kestra.plugin.hudi.AbstractHudiMaintenance`: Base of `Compact`, `Cluster` and `Clean`, with the `kill()` flag. `kill()` only sets the flag; `Cluster` rolls back its own instant when it sees it, `Compact` leaves a requested plan to be resumed on the next run.
 - `io.kestra.plugin.hudi.HudiRecordUtils`: Parses `from` input, infers the Avro schema and builds Hudi records and delete keys.
 - `io.kestra.plugin.hudi.Upsert`: Ingests and updates records in a Hudi table with automatic schema inference and commit tracking.
 - `io.kestra.plugin.hudi.Insert`: Inserts new records into a Hudi table.

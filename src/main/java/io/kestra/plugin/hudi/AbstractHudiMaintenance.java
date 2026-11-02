@@ -30,10 +30,7 @@ public abstract class AbstractHudiMaintenance extends AbstractHudiConnection imp
         }
     }
 
-    /**
-     * Only flags the task: the write client is not thread safe, so nothing is rolled back from this thread. {@code run()}
-     * checks the flag between steps. A table service that is already executing runs to completion, so the table stays consistent.
-     */
+    /** Only sets a flag, {@code run()} checks it between steps. */
     @Override
     public void kill() {
         isKilled.set(true);

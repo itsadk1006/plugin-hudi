@@ -6,6 +6,7 @@ import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
 import org.apache.hudi.common.model.HoodieTableType;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.util.Option;
 import org.junit.jupiter.api.Test;
 
@@ -143,5 +144,43 @@ class CompactTest {
         assertThat(runOutput.getInstantTime()).isEqualTo(scheduled);
         assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().filterPendingCompactionTimeline().countInstants()).isZero();
         assertThat(HudiTestUtils.readLatestRecords(basePath)).extracting(r -> HudiTestUtils.field(r, "val")).containsOnly("new");
+    }
+
+    @Test
+    void leavesAnInflightInstantUntouched() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+        HudiTestUtils.initTable(basePath, "orders_mor", HoodieTableType.MERGE_ON_READ);
+        HudiTestUtils.upsert(runContext, basePath, "orders_mor", List.of(Map.of("id", "1", "ts", 1000L, "val", "old")));
+        HudiTestUtils.upsert(runContext, basePath, "orders_mor", List.of(Map.of("id", "1", "ts", 2000L, "val", "new")));
+
+        var task = Compact.builder()
+            .id(IdUtils.create())
+            .type(Compact.class.getName())
+            .basePath(Property.ofValue(basePath))
+            .tableName(Property.ofValue("orders_mor"))
+            .configuration(Property.ofValue(Map.of("hoodie.compact.inline.max.delta.commits", "1")))
+            .build();
+        String scheduled;
+        try (var client = task.createJavaWriteClient(runContext, task.baseWriteConfigBuilder(runContext, basePath, "orders_mor").build())) {
+            scheduled = client.scheduleCompaction(Option.empty()).get();
+        }
+        // what another engine leaves while it runs the plan: an inflight instant
+        var metaClient = HudiTestUtils.metaClient(basePath);
+        var requested = metaClient.getActiveTimeline().filterPendingCompactionTimeline().getInstants().get(0);
+        metaClient.getActiveTimeline().transitionCompactionRequestedToInflight(requested);
+        assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().filterPendingCompactionTimeline().getInstants())
+            .singleElement().matches(HoodieInstant::isInflight);
+
+        assertThatThrownBy(() -> task.run(runContext))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining(scheduled)
+            .hasMessageContaining("inflight");
+
+        var after = HudiTestUtils.metaClient(basePath).getActiveTimeline();
+        assertThat(after.filterPendingCompactionTimeline().getInstants()).singleElement()
+            .matches(HoodieInstant::isInflight)
+            .matches(i -> i.requestedTime().equals(scheduled));
+        assertThat(after.getRollbackTimeline().countInstants()).isZero();
     }
 }
