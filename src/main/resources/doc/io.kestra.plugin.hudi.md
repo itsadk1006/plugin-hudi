@@ -6,13 +6,13 @@ This plugin reads, writes and maintains [Apache Hudi](https://hudi.apache.org/) 
 
 Every task and the trigger take the same connection properties:
 
-- `basePath` (required): table location, for example `s3a://my-bucket/hudi/orders`. Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. A local path (relative, absolute or `file://`) must be inside the working directory and is resolved against it.
+- `basePath` (required): table location, for example `hdfs://namenode:8020/data/hudi/orders`. Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. A local path (relative, absolute or `file://`) must be inside the working directory and is resolved against it.
 - `tableName` (required): name of the Hudi table.
 - `configuration` (optional, secret): map of Hadoop and Hudi settings, for example storage credentials or `hoodie.*` write configs. Allowed configuration keys start with `hoodie.`, `fs.s3a.`, `fs.gs.`, `fs.azure.` or `fs.abfs.`. Within `hoodie.`, only write and table tuning keys are accepted: record key, precombine and partition path fields, table name and type, index type, insert, upsert, bulk insert and delete parallelism, and the `hoodie.cleaner.*`, `hoodie.clean.*`, `hoodie.compact.*`, `hoodie.clustering.*`, `hoodie.archive.*`, `hoodie.keep.*`, `hoodie.parquet.*`, `hoodie.logfile.*`, `hoodie.copyonwrite.*` and `hoodie.index.bloom.*` groups. Other `hoodie.` keys are rejected, as is any key ending with `.path`, `.dir` or `.pattern`, or containing `.class`, `.impl`, `.factory` or `classname`. Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors`, `binding`, `keyfile` or `keytab`, are not allowed, except the credential and endpoint keys `access.key`, `secret.key`, `session.token`, `endpoint`, `path.style.access` and `region`. `fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`. Values must be literal: variable expansion is not applied and values containing `${` are rejected.
 
 `configuration` is marked as a secret and is hidden from logs. Store credentials in [secrets](https://kestra.io/docs/concepts/secret) and reference them with `{{ secret('NAME') }}`. To share the same connection across flows, use [plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults).
 
-Only the file systems present on the plugin classpath can be used. HDFS paths and local paths work out of the box; `s3a://`, `gs://` and `abfs://` paths (including the `s3a://`, `gs://` and `abfs://` examples of this plugin) need the matching Hadoop connector on the worker classpath, which is not bundled.
+Only the file systems present on the plugin classpath can be used. HDFS paths and local paths work out of the box; `s3a://`, `gs://` and `abfs://` paths only work when the matching Hadoop connector (`hadoop-aws`, `gcs-connector`, `hadoop-azure`) is added to the worker classpath, it is not bundled.
 
 A local table lives and dies with the working directory of the task. To use one table from several tasks, wrap them in `io.kestra.plugin.core.flow.WorkingDirectory` so they share the directory.
 
@@ -64,7 +64,7 @@ tasks:
 triggers:
   - id: wait_for_commit
     type: io.kestra.plugin.hudi.Trigger
-    basePath: s3a://my-bucket/hudi/orders
+    basePath: hdfs://namenode:8020/data/hudi/orders
     tableName: orders
     interval: PT2M
 ```

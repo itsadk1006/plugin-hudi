@@ -50,7 +50,7 @@ import java.util.Optional;
                 triggers:
                   - id: watch_orders
                     type: io.kestra.plugin.hudi.Trigger
-                    basePath: s3a://my-bucket/hudi/orders
+                    basePath: hdfs://namenode:8020/data/hudi/orders
                     tableName: orders
                     interval: PT1M
                 """
@@ -68,7 +68,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     @Schema(
         title = "The base path of the Hudi table",
         description = """
-            Remote path of the Hudi table (e.g., `s3a://bucket/table`). Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. Local or `file://` paths are not supported because a trigger has no shared working directory: it is new and empty on every check.
+            Remote path of the Hudi table (e.g., `hdfs://namenode:8020/data/hudi/orders`). Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. Local or `file://` paths are not supported because a trigger has no shared working directory: it is new and empty on every check.
             """
     )
     @PluginProperty(group = "main")

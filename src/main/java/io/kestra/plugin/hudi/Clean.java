@@ -30,7 +30,7 @@ import lombok.experimental.SuperBuilder;
                 tasks:
                   - id: clean_table
                     type: io.kestra.plugin.hudi.Clean
-                    basePath: s3a://my-bucket/hudi/orders
+                    basePath: hdfs://namenode:8020/data/hudi/orders
                     tableName: orders
                 """
         )

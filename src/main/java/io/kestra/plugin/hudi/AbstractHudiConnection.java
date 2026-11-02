@@ -86,11 +86,11 @@ public abstract class AbstractHudiConnection extends Task {
     }
 
     static final String BASE_PATH_DESCRIPTION = """
-        Path where the Hudi table is located (e.g., `orders`, `s3a://bucket/table`). \
+        Path where the Hudi table is located (e.g., `orders`, `hdfs://namenode:8020/data/hudi/orders`). \
         Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. \
         Local paths (relative, absolute or `file://`) must be inside the working directory, and relative paths are resolved against it. \
         A local table only lives as long as the working directory of the task. \
-        Remote `s3a`, `gs` and `abfs` paths need the matching Hadoop connector on the worker classpath, which is not bundled.
+        Remote `s3a`, `gs` and `abfs` paths only work when the matching Hadoop connector (`hadoop-aws`, `gcs-connector`, `hadoop-azure`) is added to the worker classpath, it is not bundled.
         """;
 
     static final String CONFIGURATION_DESCRIPTION = """
