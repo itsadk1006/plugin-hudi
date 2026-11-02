@@ -15,6 +15,7 @@ import lombok.experimental.SuperBuilder;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.nativeio.NativeIO;
 import org.apache.hudi.client.HoodieJavaWriteClient;
 import org.apache.hudi.client.common.HoodieJavaEngineContext;
 import org.apache.hudi.common.model.HoodieAvroPayload;
@@ -28,6 +29,8 @@ import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.Properties;
 
@@ -66,7 +69,7 @@ public abstract class AbstractHudiConnection extends Task {
             if (!loaded) {
                 try {
                     Class.forName("org.apache.hadoop.io.nativeio.NativeIO");
-                    java.lang.reflect.Field field = org.apache.hadoop.io.nativeio.NativeIO.class.getDeclaredField("nativeLoaded");
+                    Field field = NativeIO.class.getDeclaredField("nativeLoaded");
                     field.setAccessible(true);
                     field.set(null, false);
                 } catch (Throwable ignored) {
@@ -100,55 +103,67 @@ public abstract class AbstractHudiConnection extends Task {
     protected Property<Map<String, String>> configuration;
 
     public Configuration buildHadoopConfiguration(RunContext runContext) throws IllegalVariableEvaluationException {
+        return hadoopConfiguration(runContext, this.configuration);
+    }
+
+    public static Configuration hadoopConfiguration(RunContext runContext, Property<Map<String, String>> configuration) throws IllegalVariableEvaluationException {
         disableNativeIOOnWindows();
 
-        Configuration hadoopConf = new Configuration();
+        var hadoopConf = new Configuration();
         if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
             if (System.getProperty("hadoop.home.dir") == null && System.getenv("HADOOP_HOME") == null) {
-                File hadoopHome = new File("C:\\hadoop");
+                var hadoopHome = new File("C:\\hadoop");
                 if (hadoopHome.exists()) {
                     System.setProperty("hadoop.home.dir", hadoopHome.getAbsolutePath());
                 }
             }
         }
 
-        if (this.configuration != null) {
-            Map<String, String> rendered = runContext.render(this.configuration).asMap(String.class, String.class);
-            if (rendered != null) {
-                rendered.forEach((key, val) -> {
-                    if (val != null) {
-                        hadoopConf.set(key, val);
-                    }
-                });
-            }
+        if (configuration != null) {
+            var rConfiguration = runContext.render(configuration).asMap(String.class, String.class);
+            rConfiguration.forEach((key, val) -> {
+                if (val != null) {
+                    hadoopConf.set(key, val);
+                }
+            });
         }
         return hadoopConf;
     }
 
+    public static boolean tableExists(Configuration hadoopConf, String rBasePath) throws IOException {
+        var tablePath = new Path(rBasePath);
+        var fs = tablePath.getFileSystem(hadoopConf);
+        return fs.exists(new Path(tablePath, HoodieTableMetaClient.METAFOLDER_NAME));
+    }
+
+    public HoodieTableMetaClient getExistingMetaClient(RunContext runContext, String rBasePath) throws Exception {
+        var hadoopConf = buildHadoopConfiguration(runContext);
+        if (!tableExists(hadoopConf, rBasePath)) {
+            throw new IllegalArgumentException("No Hudi table at '" + rBasePath + "', check basePath");
+        }
+
+        return HoodieTableMetaClient.builder()
+            .setConf(new HadoopStorageConfiguration(hadoopConf))
+            .setBasePath(rBasePath)
+            .build();
+    }
+
     public HoodieTableMetaClient getOrInitMetaClient(
         RunContext runContext,
-        String renderedBasePath,
-        String renderedTableName,
+        String rBasePath,
+        String rTableName,
         HoodieTableType tableType
     ) throws Exception {
-        Configuration hadoopConf = buildHadoopConfiguration(runContext);
-        HadoopStorageConfiguration storageConf = new HadoopStorageConfiguration(hadoopConf);
-        Path tablePath = new Path(renderedBasePath);
-        FileSystem fs = tablePath.getFileSystem(hadoopConf);
-        Path hoodieDir = new Path(tablePath, HoodieTableMetaClient.METAFOLDER_NAME);
-
-        if (!fs.exists(hoodieDir)) {
-            return HoodieTableMetaClient.newTableBuilder()
-                .setTableType(tableType != null ? tableType : HoodieTableType.COPY_ON_WRITE)
-                .setTableName(renderedTableName)
-                .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
-                .initTable(storageConf, renderedBasePath);
-        } else {
-            return HoodieTableMetaClient.builder()
-                .setConf(storageConf)
-                .setBasePath(renderedBasePath)
-                .build();
+        var hadoopConf = buildHadoopConfiguration(runContext);
+        if (tableExists(hadoopConf, rBasePath)) {
+            return getExistingMetaClient(runContext, rBasePath);
         }
+
+        return HoodieTableMetaClient.newTableBuilder()
+            .setTableType(tableType != null ? tableType : HoodieTableType.COPY_ON_WRITE)
+            .setTableName(rTableName)
+            .setBaseFileFormat(HoodieFileFormat.PARQUET.name())
+            .initTable(new HadoopStorageConfiguration(hadoopConf), rBasePath);
     }
 
     public HoodieWriteConfig.Builder baseWriteConfigBuilder(

@@ -11,15 +11,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
-import org.apache.hudi.avro.model.HoodieCleanMetadata;
-import org.apache.hudi.client.HoodieJavaWriteClient;
-import org.apache.hudi.common.model.HoodieAvroPayload;
-import org.apache.hudi.common.model.HoodieTableType;
-import org.apache.hudi.config.HoodieWriteConfig;
-import org.slf4j.Logger;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 @SuperBuilder
 @ToString
@@ -48,52 +40,33 @@ import java.util.concurrent.atomic.AtomicReference;
     title = "Clean an Apache Hudi table",
     description = "Trigger clean table service on an Apache Hudi table to remove older file slices."
 )
-public class Clean extends AbstractHudiConnection implements RunnableTask<Clean.Output> {
-
-    @Builder.Default
-    @EqualsAndHashCode.Exclude
-    @ToString.Exclude
-    private final AtomicBoolean isKilled = new AtomicBoolean(false);
-
-    @Builder.Default
-    @EqualsAndHashCode.Exclude
-    @ToString.Exclude
-    private final AtomicReference<String> runningInstant = new AtomicReference<>();
-
-    @Builder.Default
-    @EqualsAndHashCode.Exclude
-    @ToString.Exclude
-    private final AtomicReference<HoodieJavaWriteClient<HoodieAvroPayload>> activeClient = new AtomicReference<>();
+public class Clean extends AbstractHudiMaintenance implements RunnableTask<Clean.Output> {
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        Logger logger = runContext.logger();
-        String renderedBasePath = runContext.render(this.basePath).as(String.class).orElseThrow();
-        String renderedTableName = runContext.render(this.tableName).as(String.class).orElseThrow();
+        var logger = runContext.logger();
+        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
 
-        logger.info("Cleaning Hudi table '{}' at '{}'", renderedTableName, renderedBasePath);
+        logger.info("Cleaning Hudi table '{}' at '{}'", rTableName, rBasePath);
 
-        getOrInitMetaClient(runContext, renderedBasePath, renderedTableName, HoodieTableType.COPY_ON_WRITE);
+        getExistingMetaClient(runContext, rBasePath);
 
-        HoodieWriteConfig writeConfig = baseWriteConfigBuilder(runContext, renderedBasePath, renderedTableName).build();
+        var writeConfig = baseWriteConfigBuilder(runContext, rBasePath, rTableName).build();
 
-        try (HoodieJavaWriteClient<HoodieAvroPayload> client = createJavaWriteClient(runContext, writeConfig)) {
+        try (var client = createJavaWriteClient(runContext, writeConfig)) {
             activeClient.set(client);
-            if (isKilled.get()) {
-                throw new IllegalStateException("Clean task was killed before execution");
-            }
+            ensureNotKilled("before execution");
 
-            String cleanInstant = client.createNewInstantTime(false);
+            var cleanInstant = client.createNewInstantTime(false);
             runningInstant.set(cleanInstant);
 
-            if (isKilled.get()) {
-                throw new IllegalStateException("Clean task was killed during execution");
-            }
+            ensureNotKilled("during execution");
 
-            HoodieCleanMetadata cleanMetadata = client.clean(cleanInstant);
-            long totalFilesCleaned = cleanMetadata != null ? cleanMetadata.getTotalFilesDeleted() : 0L;
+            var cleanMetadata = client.clean(cleanInstant);
+            var totalFilesCleaned = cleanMetadata != null ? cleanMetadata.getTotalFilesDeleted() : 0L;
 
-            logger.info("Successfully cleaned {} files for instant {} on table '{}'", totalFilesCleaned, cleanInstant, renderedTableName);
+            logger.info("Successfully cleaned {} files for instant {} on table '{}'", totalFilesCleaned, cleanInstant, rTableName);
             return Output.builder()
                 .instantTime(cleanInstant)
                 .filesCleaned(totalFilesCleaned)
@@ -105,16 +78,8 @@ public class Clean extends AbstractHudiConnection implements RunnableTask<Clean.
     }
 
     @Override
-    public void kill() {
-        isKilled.set(true);
-        String instant = runningInstant.get();
-        HoodieJavaWriteClient<HoodieAvroPayload> client = activeClient.get();
-        if (client != null && instant != null) {
-            try {
-                client.rollback(instant);
-            } catch (Exception ignored) {
-            }
-        }
+    protected boolean rollbackOnKill() {
+        return false;
     }
 
     @Builder

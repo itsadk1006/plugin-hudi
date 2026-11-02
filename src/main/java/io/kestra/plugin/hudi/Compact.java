@@ -11,15 +11,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
-import org.apache.hudi.client.HoodieJavaWriteClient;
-import org.apache.hudi.common.model.HoodieAvroPayload;
-import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.config.HoodieWriteConfig;
-import org.slf4j.Logger;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 @SuperBuilder
 @ToString
@@ -48,74 +41,41 @@ import java.util.concurrent.atomic.AtomicReference;
     title = "Compact an Apache Hudi table",
     description = "Trigger compaction table service on an Apache Hudi table."
 )
-public class Compact extends AbstractHudiConnection implements RunnableTask<Compact.Output> {
-
-    @Builder.Default
-    @EqualsAndHashCode.Exclude
-    @ToString.Exclude
-    private final AtomicBoolean isKilled = new AtomicBoolean(false);
-
-    @Builder.Default
-    @EqualsAndHashCode.Exclude
-    @ToString.Exclude
-    private final AtomicReference<String> runningInstant = new AtomicReference<>();
-
-    @Builder.Default
-    @EqualsAndHashCode.Exclude
-    @ToString.Exclude
-    private final AtomicReference<HoodieJavaWriteClient<HoodieAvroPayload>> activeClient = new AtomicReference<>();
+public class Compact extends AbstractHudiMaintenance implements RunnableTask<Compact.Output> {
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        Logger logger = runContext.logger();
-        String renderedBasePath = runContext.render(this.basePath).as(String.class).orElseThrow();
-        String renderedTableName = runContext.render(this.tableName).as(String.class).orElseThrow();
+        var logger = runContext.logger();
+        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
 
-        logger.info("Compacting Hudi table '{}' at '{}'", renderedTableName, renderedBasePath);
+        logger.info("Compacting Hudi table '{}' at '{}'", rTableName, rBasePath);
 
-        getOrInitMetaClient(runContext, renderedBasePath, renderedTableName, HoodieTableType.MERGE_ON_READ);
+        getExistingMetaClient(runContext, rBasePath);
 
-        HoodieWriteConfig writeConfig = baseWriteConfigBuilder(runContext, renderedBasePath, renderedTableName).build();
+        var writeConfig = baseWriteConfigBuilder(runContext, rBasePath, rTableName).build();
 
-        try (HoodieJavaWriteClient<HoodieAvroPayload> client = createJavaWriteClient(runContext, writeConfig)) {
+        try (var client = createJavaWriteClient(runContext, writeConfig)) {
             activeClient.set(client);
-            if (isKilled.get()) {
-                throw new IllegalStateException("Compact task was killed before execution");
-            }
+            ensureNotKilled("before execution");
 
-            Option<String> compactionInstant = client.scheduleCompaction(Option.empty());
+            var compactionInstant = client.scheduleCompaction(Option.empty());
             if (compactionInstant.isPresent()) {
-                String instant = compactionInstant.get();
+                var instant = compactionInstant.get();
                 runningInstant.set(instant);
 
-                if (isKilled.get()) {
-                    client.rollback(instant);
-                    throw new IllegalStateException("Compact task was killed during execution");
-                }
+                rollbackIfKilled(client, instant);
 
                 client.compact(instant);
-                logger.info("Successfully completed compaction for instant {} on table '{}'", instant, renderedTableName);
+                logger.info("Successfully completed compaction for instant {} on table '{}'", instant, rTableName);
                 return Output.builder().instantTime(instant).build();
             } else {
-                logger.info("No compaction scheduled for table '{}'", renderedTableName);
+                logger.info("No compaction scheduled for table '{}'", rTableName);
                 return Output.builder().instantTime(null).build();
             }
         } finally {
             activeClient.set(null);
             runningInstant.set(null);
-        }
-    }
-
-    @Override
-    public void kill() {
-        isKilled.set(true);
-        String instant = runningInstant.get();
-        HoodieJavaWriteClient<HoodieAvroPayload> client = activeClient.get();
-        if (client != null && instant != null) {
-            try {
-                client.rollback(instant);
-            } catch (Exception ignored) {
-            }
         }
     }
 
