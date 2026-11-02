@@ -12,8 +12,6 @@ import io.kestra.core.models.triggers.TriggerContext;
 import io.kestra.core.models.triggers.TriggerOutput;
 import io.kestra.core.models.triggers.TriggerService;
 import io.kestra.core.runners.RunContext;
-import io.kestra.core.storages.kv.KVStore;
-import io.kestra.core.storages.kv.KVValue;
 import io.kestra.core.storages.kv.KVValueAndMetadata;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
@@ -23,14 +21,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
-import org.slf4j.Logger;
 
-import java.io.File;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
@@ -104,76 +97,55 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Override
     public Optional<Execution> evaluate(ConditionContext conditionContext, TriggerContext context) throws Exception {
-        RunContext runContext = conditionContext.getRunContext();
-        Logger logger = runContext.logger();
-        String renderedBasePath = runContext.render(this.basePath).as(String.class).orElseThrow();
-        String renderedTableName = runContext.render(this.tableName).as(String.class).orElseThrow();
-        AbstractHudiConnection.disableNativeIOOnWindows();
+        var runContext = conditionContext.getRunContext();
+        var logger = runContext.logger();
+        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
 
-        Configuration hadoopConf = new Configuration();
-        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
-            if (System.getProperty("hadoop.home.dir") == null && System.getenv("HADOOP_HOME") == null) {
-                File hadoopHome = new File("C:\\hadoop");
-                if (hadoopHome.exists()) {
-                    System.setProperty("hadoop.home.dir", hadoopHome.getAbsolutePath());
-                }
-            }
-        }
-        if (this.configuration != null) {
-            Map<String, String> renderedConfig = runContext.render(this.configuration).asMap(String.class, String.class);
-            if (renderedConfig != null) {
-                renderedConfig.forEach((k, v) -> {
-                    if (v != null) {
-                        hadoopConf.set(k, v);
-                    }
-                });
-            }
-        }
-
-        HoodieTableMetaClient metaClient;
-        try {
-            metaClient = HoodieTableMetaClient.builder()
-                .setConf(new HadoopStorageConfiguration(hadoopConf))
-                .setBasePath(renderedBasePath)
-                .build();
-        } catch (Exception e) {
-            logger.debug("Hudi table at '{}' is not initialized or not found: {}", renderedBasePath, e.getMessage());
+        var hadoopConf = AbstractHudiConnection.hadoopConfiguration(runContext, this.configuration);
+        if (!AbstractHudiConnection.tableExists(hadoopConf, rBasePath)) {
+            logger.debug("No Hudi table found at '{}', skipping poll", rBasePath);
             return Optional.empty();
         }
 
-        Option<HoodieInstant> latestInstant = metaClient.getActiveTimeline()
+        var metaClient = HoodieTableMetaClient.builder()
+            .setConf(new HadoopStorageConfiguration(hadoopConf))
+            .setBasePath(rBasePath)
+            .build();
+
+        var latestInstant = metaClient.getActiveTimeline()
             .getCommitsTimeline()
             .filterCompletedInstants()
             .lastInstant();
 
         if (latestInstant.isEmpty()) {
-            logger.debug("No completed commits found on Hudi table '{}'", renderedTableName);
+            logger.debug("No completed commits found on Hudi table '{}'", rTableName);
             return Optional.empty();
         }
 
-        String latestCommitTime = latestInstant.get().requestedTime();
-        String flowId = conditionContext.getFlow().getId();
-        String triggerId = context.getTriggerId();
-        String namespace = conditionContext.getFlow().getNamespace();
+        var latestCommitTime = latestInstant.get().requestedTime();
+        var flowId = conditionContext.getFlow().getId();
+        var triggerId = context.getTriggerId();
+        var namespace = conditionContext.getFlow().getNamespace();
 
-        String stateKey = "hudi_watermark_"
+        var stateKey = "hudi_watermark_"
             + flowId.length() + "_" + flowId + "_"
             + triggerId.length() + "_" + triggerId + "_"
-            + renderedTableName.length() + "_" + renderedTableName;
+            + rTableName.length() + "_" + rTableName;
 
-        KVStore kvStore = runContext.namespaceKv(namespace);
-        Optional<KVValue> valueOptional = kvStore.getValue(stateKey);
-        String watermark = valueOptional.map(kv -> (String) kv.value()).orElse(null);
+        var kvStore = runContext.namespaceKv(namespace);
+        var valueOptional = kvStore.getValue(stateKey);
+        var watermark = valueOptional.map(kv -> (String) kv.value()).orElse(null);
 
         if (watermark == null || latestCommitTime.compareTo(watermark) > 0) {
-            logger.info("New commit detected: {} for table '{}' (previous watermark: {})", latestCommitTime, renderedTableName, watermark);
+            logger.info("New commit detected: {} for table '{}' (previous watermark: {})", latestCommitTime, rTableName, watermark);
             kvStore.put(stateKey, new KVValueAndMetadata(null, latestCommitTime));
 
-            Output output = Output.builder()
+            var output = Output.builder()
                 .lastCommitTime(latestCommitTime)
                 .action(latestInstant.get().getAction())
-                .tableName(renderedTableName)
-                .basePath(renderedBasePath)
+                .tableName(rTableName)
+                .basePath(rBasePath)
                 .build();
 
             return Optional.of(TriggerService.generateExecution(this, conditionContext, context, output));
