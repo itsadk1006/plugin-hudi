@@ -160,9 +160,9 @@ public abstract class AbstractHudiConnection extends Task {
             return result;
         }
 
-        var rendered = runContext.render(configuration).asMap(String.class, String.class);
-        if (rendered != null) {
-            rendered.forEach((key, val) -> {
+        var rConfiguration = runContext.render(configuration).asMap(String.class, String.class);
+        if (rConfiguration != null) {
+            rConfiguration.forEach((key, val) -> {
                 validateConfigurationKey(key);
                 if (val != null) {
                     if (val.contains("${")) {
@@ -218,7 +218,11 @@ public abstract class AbstractHudiConnection extends Task {
     static void validateConfigurationKey(String key) {
         var lower = key == null ? "" : key.toLowerCase(Locale.ROOT);
         if (!isAllowedConfigurationKey(lower)) {
-            throw new IllegalArgumentException("Configuration key '" + key + "' is not allowed: see the 'configuration' property documentation for the allowed key prefixes (" + String.join(", ", ALLOWED_KEY_PREFIXES) + ") and remove it from 'configuration'");
+            var hasAllowedPrefix = ALLOWED_KEY_PREFIXES.stream().anyMatch(lower::startsWith);
+            var reason = hasAllowedPrefix
+                ? "the key itself is not on the allow-list (it could load code, redirect storage, change credentials providers or paths)"
+                : "it does not start with an allowed prefix (" + String.join(", ", ALLOWED_KEY_PREFIXES) + ")";
+            throw new IllegalArgumentException("Configuration key '" + key + "' is not allowed: " + reason + ". See the 'configuration' property documentation and remove it from 'configuration'");
         }
     }
 
@@ -261,20 +265,20 @@ public abstract class AbstractHudiConnection extends Task {
             .orElseThrow(() -> new IllegalArgumentException("basePath is required"));
     }
 
-    private static IllegalArgumentException unsupportedScheme(String rendered, String scheme) {
-        return new IllegalArgumentException("Unsupported scheme '" + scheme + "' in basePath '" + rendered + "', allowed remote schemes: " + String.join(", ", ALLOWED_REMOTE_SCHEMES));
+    private static IllegalArgumentException unsupportedScheme(String rBasePath, String scheme) {
+        return new IllegalArgumentException("Unsupported scheme '" + scheme + "' in basePath '" + rBasePath + "', allowed remote schemes: " + String.join(", ", ALLOWED_REMOTE_SCHEMES));
     }
 
     /**
      * Renders {@code basePath} for contexts without a working directory (triggers): only the allowed remote schemes are accepted.
      */
     public static String resolveRemoteBasePath(RunContext runContext, Property<String> basePath) throws IllegalVariableEvaluationException {
-        var rendered = renderBasePath(runContext, basePath);
-        var schemeMatcher = SCHEME.matcher(rendered);
+        var rBasePath = renderBasePath(runContext, basePath);
+        var schemeMatcher = SCHEME.matcher(rBasePath);
         if (schemeMatcher.find() && ALLOWED_REMOTE_SCHEMES.contains(schemeMatcher.group(1).toLowerCase(Locale.ROOT))) {
-            return rendered;
+            return rBasePath;
         }
-        throw new IllegalArgumentException("basePath '" + rendered + "' is not supported here: a trigger has no shared working directory, so it needs a remote table path, allowed remote schemes: " + String.join(", ", ALLOWED_REMOTE_SCHEMES));
+        throw new IllegalArgumentException("basePath '" + rBasePath + "' is not supported here: a trigger has no shared working directory, so it needs a remote table path, allowed remote schemes: " + String.join(", ", ALLOWED_REMOTE_SCHEMES));
     }
 
     /**
@@ -282,35 +286,35 @@ public abstract class AbstractHudiConnection extends Task {
      * are resolved against the working directory and must stay inside it once normalized and symlinks are resolved.
      */
     public static String resolveBasePath(RunContext runContext, Property<String> basePath) throws IllegalVariableEvaluationException, IOException {
-        var rendered = renderBasePath(runContext, basePath);
+        var rBasePath = renderBasePath(runContext, basePath);
 
-        var schemeMatcher = SCHEME.matcher(rendered);
+        var schemeMatcher = SCHEME.matcher(rBasePath);
         String localPath;
         if (schemeMatcher.find()) {
             var scheme = schemeMatcher.group(1).toLowerCase(Locale.ROOT);
             if (ALLOWED_REMOTE_SCHEMES.contains(scheme)) {
-                return rendered;
+                return rBasePath;
             }
             if (!"file".equals(scheme)) {
-                throw unsupportedScheme(rendered, scheme);
+                throw unsupportedScheme(rBasePath, scheme);
             }
             try {
-                var uri = new URI(rendered);
+                var uri = new URI(rBasePath);
                 if (uri.getPath() == null || (uri.getAuthority() != null && !uri.getAuthority().isEmpty())) {
-                    throw new IllegalArgumentException("Invalid basePath '" + rendered + "', use a path under the working directory, e.g. a relative path or file:///<working directory>/table");
+                    throw new IllegalArgumentException("Invalid basePath '" + rBasePath + "', use a path under the working directory, e.g. a relative path or file:///<working directory>/table");
                 }
                 localPath = uri.getPath();
             } catch (URISyntaxException e) {
-                throw new IllegalArgumentException("Invalid basePath '" + rendered + "': " + e.getMessage(), e);
+                throw new IllegalArgumentException("Invalid basePath '" + rBasePath + "': " + e.getMessage(), e);
             }
         } else {
-            localPath = rendered;
+            localPath = rBasePath;
         }
 
         var workingDir = runContext.workingDir().path().toRealPath();
         var real = realPathOfExistingPrefix(workingDir.resolve(localPath).normalize());
         if (!real.startsWith(workingDir)) {
-            throw new IllegalArgumentException("basePath '" + rendered + "' must be inside the working directory, use a path under the working directory (relative paths are resolved against it)");
+            throw new IllegalArgumentException("basePath '" + rBasePath + "' must be inside the working directory, use a path under the working directory (relative paths are resolved against it)");
         }
 
         var uri = real.toUri().toString();

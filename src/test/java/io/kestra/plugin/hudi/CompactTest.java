@@ -167,7 +167,7 @@ class CompactTest {
         }
         // what another engine leaves while it runs the plan: an inflight instant
         var metaClient = HudiTestUtils.metaClient(basePath);
-        var requested = metaClient.getActiveTimeline().filterPendingCompactionTimeline().getInstants().get(0);
+        var requested = metaClient.getActiveTimeline().filterPendingCompactionTimeline().getInstants().getFirst();
         metaClient.getActiveTimeline().transitionCompactionRequestedToInflight(requested);
         assertThat(HudiTestUtils.metaClient(basePath).getActiveTimeline().filterPendingCompactionTimeline().getInstants())
             .singleElement().matches(HoodieInstant::isInflight);

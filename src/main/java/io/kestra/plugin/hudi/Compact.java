@@ -66,12 +66,11 @@ public class Compact extends AbstractHudiMaintenance implements RunnableTask<Com
         try (var client = createJavaWriteClient(runContext, writeConfig)) {
             ensureNotKilled("before execution");
 
-            // A plan left requested by a killed or failed run is executed first, it blocks its file groups from a new plan.
-            // Inflight instants may be running in another engine: they are never rolled back nor executed here.
+            // A requested plan is executed first; inflight instants may run elsewhere, so they are never rolled back or executed here.
             var pendingInstants = metaClient.getActiveTimeline().filterPendingCompactionTimeline().getInstants();
             var requested = pendingInstants.stream().filter(HoodieInstant::isRequested).findFirst();
             if (requested.isEmpty() && !pendingInstants.isEmpty()) {
-                throw new IllegalStateException("Compaction instant " + pendingInstants.get(0).requestedTime() + " on table '" + rTableName
+                throw new IllegalStateException("Compaction instant " + pendingInstants.getFirst().requestedTime() + " on table '" + rTableName
                     + "' is inflight and may be running elsewhere, it is left untouched. Retry once it has completed or been rolled back");
             }
             var compactionInstant = requested.isPresent()

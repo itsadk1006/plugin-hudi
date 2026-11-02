@@ -70,7 +70,7 @@ class CommitsTest {
         assertThat(runOutput).isNotNull();
         assertThat(runOutput.getSize()).isGreaterThanOrEqualTo(1L);
         assertThat(runOutput.getRows()).isNotEmpty();
-        Map<String, Object> firstCommit = runOutput.getRows().get(0);
+        Map<String, Object> firstCommit = runOutput.getRows().getFirst();
         assertThat(firstCommit).containsKey("instantTime");
         assertThat(firstCommit).containsKey("action");
         assertThat(firstCommit.get("state")).isEqualTo("COMPLETED");

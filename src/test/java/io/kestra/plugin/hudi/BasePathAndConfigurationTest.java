@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -169,6 +170,19 @@ class BasePathAndConfigurationTest {
     }
 
     @Test
+    void deniedKeyMessageSaysWhy() {
+        var runContext = runContextFactory.of();
+
+        assertThatThrownBy(() -> AbstractHudiConnection.hadoopConfiguration(runContext, Property.ofValue(Map.of("fs.s3a.aws.credentials.provider", "x"))))
+            .hasMessageContaining("'fs.s3a.aws.credentials.provider' is not allowed")
+            .hasMessageContaining("the key itself is not on the allow-list")
+            .hasMessageNotContaining("does not start with");
+        assertThatThrownBy(() -> AbstractHudiConnection.hadoopConfiguration(runContext, Property.ofValue(Map.of("unknown.key", "x"))))
+            .hasMessageContaining("'unknown.key' is not allowed")
+            .hasMessageContaining("does not start with an allowed prefix");
+    }
+
+    @Test
     void valuesMustBeLiteral() throws Exception {
         var runContext = runContextFactory.of();
 
@@ -211,7 +225,7 @@ class BasePathAndConfigurationTest {
     @Test
     void allowedConfigurationKeysPass() throws Exception {
         var runContext = runContextFactory.of();
-        var configuration = new java.util.LinkedHashMap<String, String>();
+        var configuration = new LinkedHashMap<String, String>();
         configuration.put("fs.s3a.access.key", "key");
         configuration.put("fs.s3a.secret.key", "secret");
         configuration.put("fs.s3a.endpoint", "http://localhost:9000");
