@@ -34,7 +34,7 @@ Both tasks create the table (copy on write) when `basePath` has none, and fail w
 
 ### Read
 
-`Commits` lists the completed commits of the active timeline with `instantTime`, `action`, `state` and `totalRecords`. Use `fetchType` (`FETCH`, `FETCH_ONE` or `STORE`) to choose how rows are returned.
+`Commits` lists the completed commits of the active timeline with `instantTime`, `action`, `state` and `totalRecords`. `totalRecords` is the number of records written by that commit, including records rewritten by copy on write file rewrites, not the size of the table after the commit (for example a delete commit can show 0). Use `fetchType` (`FETCH`, `FETCH_ONE` or `STORE`) to choose how rows are returned.
 
 ### Maintenance
 
@@ -44,7 +44,11 @@ Both tasks create the table (copy on write) when `basePath` has none, and fail w
 - `Cluster` returns a null `instantTime` when no clustering plan is scheduled.
 - `Clean` returns `instantTime` and `filesCleaned`.
 
-Killing a `Compact` or `Cluster` execution rolls back the instant in progress.
+Killing a `Compact` or `Cluster` execution does not roll back the instant in progress. A crashed or killed `Compact` can leave an inflight compaction instant on the timeline. Because it may be running in another engine, `Compact` never rolls it back or executes it, and fails on later runs until the instant is completed or rolled back. To clear it, make sure nothing is still running it, then roll it back with Hudi tooling, for example `compaction unschedule` or `commit rollback` in `hudi-cli`. A plan left in the requested state is executed by the next `Compact` run.
+
+### Delete
+
+`Delete` locates a record by its key and partition path. For a partitioned table, set `partitionPathField` and make `from` contain records with both the record key field and the partition path field; bare keys fail the task with an error naming `from` and `partitionPathField`. Bare keys work on non-partitioned tables only, so leave `partitionPathField` unset for those.
 
 ## Triggers
 
