@@ -86,9 +86,21 @@ public abstract class AbstractHudiConnection extends Task {
         }
     }
 
+    static final String BASE_PATH_DESCRIPTION = "Path where the Hudi table is located (e.g., `orders`, `s3a://bucket/table`). "
+        + "Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. "
+        + "Local paths (relative, absolute or `file://`) must be inside the working directory, and relative paths are resolved against it. "
+        + "A local table only lives as long as the working directory of the task.";
+
+    static final String CONFIGURATION_DESCRIPTION = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). "
+        + "Allowed configuration keys start with `hoodie.`, `fs.s3a.`, `fs.gs.`, `fs.azure.` or `fs.abfs.`. "
+        + "Within `hoodie.`, keys containing `callback`, `lock.provider`, `.class`, `.impl`, `.factory`, `classname`, `.url` or `.endpoint` are not allowed. "
+        + "Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors` or `binding`, are not allowed; "
+        + "the credential and endpoint keys `access.key`, `secret.key`, `session.token`, `endpoint`, `path.style.access` and `region` (e.g. `fs.s3a.access.key`) are always accepted. "
+        + "`fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`.";
+
     @Schema(
         title = "The base path of the Hudi table",
-        description = "Path where the Hudi table is located (e.g., `orders`, `s3a://bucket/table`). Local paths (relative, absolute or `file://`) must be inside the working directory, and relative paths are resolved against it. Remote schemes are used as is."
+        description = BASE_PATH_DESCRIPTION
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -104,7 +116,7 @@ public abstract class AbstractHudiConnection extends Task {
 
     @Schema(
         title = "Configuration properties for the Hudi connection",
-        description = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). Implementation class keys are not allowed: keys ending with `.impl`, `.class`, `.classname`, `.classnames` or `.factory`, or containing a `.impl.`, `.class.` or `.factory.` segment."
+        description = CONFIGURATION_DESCRIPTION
     )
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
@@ -149,36 +161,97 @@ public abstract class AbstractHudiConnection extends Task {
         return result;
     }
 
-    /**
-     * Suffixes and segments (compared in lower case) that designate implementation classes or factories.
-     * Credentials, endpoints and plain tuning keys such as {@code hoodie.cleaner.commits.retained} are not affected.
-     */
-    private static final List<String> DENIED_KEY_SUFFIXES = List.of(".impl", ".class", ".classname", ".classnames", ".factory", ".provider.class");
-    private static final List<String> DENIED_KEY_SEGMENTS = List.of(".impl.", ".class.", ".factory.");
+    private static final List<String> ALLOWED_KEY_PREFIXES = List.of("hoodie.", "fs.s3a.", "fs.gs.", "fs.azure.", "fs.abfs.");
+    private static final List<String> STORAGE_KEY_PREFIXES = List.of("fs.s3a.", "fs.gs.", "fs.azure.", "fs.abfs.");
+
+    /** Small deny set inside {@code hoodie.}: keys that name callbacks, lock providers, classes or remote endpoints. */
+    private static final List<String> DENIED_HOODIE_FRAGMENTS = List.of(
+        "callback", "lock.provider", ".class", ".impl", ".factory", "classname", ".url", ".endpoint", "compaction.strategy"
+    );
+
+    /** Key shapes that are not accepted under the storage prefixes, except the explicit keys below. */
+    private static final List<String> DENIED_STORAGE_SUFFIXES = List.of(".impl", ".class", ".classname", ".factory", ".provider");
+    private static final List<String> DENIED_STORAGE_FRAGMENTS = List.of("provider", "signers", "interceptors", "binding");
+
+    /** Credential and endpoint settings, accepted whatever the shape rules above say. */
+    private static final List<String> ALLOWED_STORAGE_KEY_NAMES = List.of(
+        "access.key", "secret.key", "session.token", "endpoint", "path.style.access", "region", "endpoint.region"
+    );
+
+    private static final Pattern SCHEME_IMPL_KEY = Pattern.compile("^fs\\.[^.]+\\.impl$");
 
     static void validateConfigurationKey(String key) {
         var lower = key == null ? "" : key.toLowerCase(Locale.ROOT);
-        if (DENIED_KEY_SUFFIXES.stream().anyMatch(lower::endsWith) || DENIED_KEY_SEGMENTS.stream().anyMatch(lower::contains)) {
-            throw new IllegalArgumentException("Configuration key '" + key + "' is not allowed: implementation class keys cannot be set, remove it from 'configuration'");
+        if (!isAllowedConfigurationKey(lower)) {
+            throw new IllegalArgumentException("Configuration key '" + key + "' is not allowed: see the 'configuration' property documentation for the allowed key prefixes (" + String.join(", ", ALLOWED_KEY_PREFIXES) + ") and remove it from 'configuration'");
         }
     }
 
+    private static boolean isAllowedConfigurationKey(String lower) {
+        if (lower.startsWith("fs.viewfs.") || SCHEME_IMPL_KEY.matcher(lower).matches()) {
+            return false;
+        }
+
+        if (lower.startsWith("hoodie.")) {
+            return DENIED_HOODIE_FRAGMENTS.stream().noneMatch(lower::contains);
+        }
+
+        var storagePrefix = STORAGE_KEY_PREFIXES.stream().filter(lower::startsWith).findFirst();
+        if (storagePrefix.isEmpty()) {
+            return false;
+        }
+
+        var name = lower.substring(storagePrefix.get().length());
+        if (ALLOWED_STORAGE_KEY_NAMES.contains(name)) {
+            return true;
+        }
+        return DENIED_STORAGE_SUFFIXES.stream().noneMatch(lower::endsWith)
+            && DENIED_STORAGE_FRAGMENTS.stream().noneMatch(lower::contains);
+    }
+
+    /** Remote schemes accepted in {@code basePath}; any other scheme is rejected. */
+    static final List<String> ALLOWED_REMOTE_SCHEMES = List.of("hdfs", "s3a", "gs", "abfs", "abfss", "wasb", "wasbs");
+
     private static final Pattern SCHEME = Pattern.compile("^([a-zA-Z][a-zA-Z0-9+.-]+):");
 
+    private static String renderBasePath(RunContext runContext, Property<String> basePath) throws IllegalVariableEvaluationException {
+        return runContext.render(basePath).as(String.class)
+            .filter(v -> !v.isBlank())
+            .orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+    }
+
+    private static IllegalArgumentException unsupportedScheme(String rendered, String scheme) {
+        return new IllegalArgumentException("Unsupported scheme '" + scheme + "' in basePath '" + rendered + "', allowed remote schemes: " + String.join(", ", ALLOWED_REMOTE_SCHEMES));
+    }
+
     /**
-     * Renders {@code basePath}. Remote schemes are returned unchanged; local paths (scheme-less or {@code file:})
+     * Renders {@code basePath} for contexts without a working directory (triggers): only the allowed remote schemes are accepted.
+     */
+    public static String resolveRemoteBasePath(RunContext runContext, Property<String> basePath) throws IllegalVariableEvaluationException {
+        var rendered = renderBasePath(runContext, basePath);
+        var schemeMatcher = SCHEME.matcher(rendered);
+        if (schemeMatcher.find() && ALLOWED_REMOTE_SCHEMES.contains(schemeMatcher.group(1).toLowerCase(Locale.ROOT))) {
+            return rendered;
+        }
+        throw new IllegalArgumentException("basePath '" + rendered + "' is not supported here: a trigger has no shared working directory, so it needs a remote table path, allowed remote schemes: " + String.join(", ", ALLOWED_REMOTE_SCHEMES));
+    }
+
+    /**
+     * Renders {@code basePath}. Allowed remote schemes are returned unchanged; local paths (scheme-less or {@code file:})
      * are resolved against the working directory and must stay inside it once normalized and symlinks are resolved.
      */
     public static String resolveBasePath(RunContext runContext, Property<String> basePath) throws IllegalVariableEvaluationException, IOException {
-        var rendered = runContext.render(basePath).as(String.class)
-            .filter(v -> !v.isBlank())
-            .orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rendered = renderBasePath(runContext, basePath);
 
         var schemeMatcher = SCHEME.matcher(rendered);
         String localPath;
         if (schemeMatcher.find()) {
-            if (!"file".equalsIgnoreCase(schemeMatcher.group(1))) {
+            var scheme = schemeMatcher.group(1).toLowerCase(Locale.ROOT);
+            if (ALLOWED_REMOTE_SCHEMES.contains(scheme)) {
                 return rendered;
+            }
+            if (!"file".equals(scheme)) {
+                throw unsupportedScheme(rendered, scheme);
             }
             try {
                 var uri = new URI(rendered);

@@ -29,19 +29,21 @@ class TriggerTest {
             .build();
     }
 
+    // Polling logic only: a real trigger needs a remote table, so the table lives in the working directory of this test.
     @Test
     void runTriggerPolling() throws Exception {
-        var basePath = "table";
+        var basePath = "s3a://my-bucket/hudi/orders";
         var tableName = "orders_trigger";
         var trigger = trigger(basePath, tableName);
         var context = TestsUtils.mockTrigger(runContextFactory, trigger);
+        var localTable = HudiTestUtils.tableUri(context.getKey().getRunContext());
 
-        assertThat(trigger.evaluate(context.getKey(), context.getValue())).isEmpty();
+        assertThat(trigger.poll(context.getKey(), context.getValue(), localTable)).isEmpty();
 
         var upsertOutput = Upsert.builder()
             .id(IdUtils.create())
             .type(Upsert.class.getName())
-            .basePath(Property.ofValue(HudiTestUtils.tableUri(context.getKey().getRunContext())))
+            .basePath(Property.ofValue(localTable))
             .tableName(Property.ofValue(tableName))
             .recordKeyField(Property.ofValue("id"))
             .precombineField(Property.ofValue("ts"))
@@ -50,21 +52,35 @@ class TriggerTest {
             .run(context.getKey().getRunContext());
         assertThat(upsertOutput.getCommitInstantTime()).isNotBlank();
 
-        var execution = trigger.evaluate(context.getKey(), context.getValue());
+        var execution = trigger.poll(context.getKey(), context.getValue(), localTable);
         assertThat(execution).isPresent();
         assertThat(execution.get().getTrigger().getVariables())
             .containsEntry("lastCommitTime", upsertOutput.getCommitInstantTime())
             .containsEntry("tableName", tableName);
 
-        assertThat(trigger.evaluate(context.getKey(), context.getValue())).isEmpty();
+        assertThat(trigger.poll(context.getKey(), context.getValue(), localTable)).isEmpty();
     }
 
     @Test
-    void failsOnUnsupportedFileSystem() throws Exception {
-        var trigger = trigger("unknownscheme://bucket/orders", "orders_trigger");
+    void rejectsLocalPath() throws Exception {
+        for (var basePath : List.of("table", "file:///tmp/table")) {
+            var trigger = trigger(basePath, "orders_trigger");
+            var context = TestsUtils.mockTrigger(runContextFactory, trigger);
+
+            assertThatThrownBy(() -> trigger.evaluate(context.getKey(), context.getValue()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("needs a remote table path")
+                .hasMessageContaining("no shared working directory");
+        }
+    }
+
+    @Test
+    void rejectsSchemeOutsideTheAllowedList() throws Exception {
+        var trigger = trigger("viewfs://cluster/orders", "orders_trigger");
         var context = TestsUtils.mockTrigger(runContextFactory, trigger);
 
         assertThatThrownBy(() -> trigger.evaluate(context.getKey(), context.getValue()))
-            .hasMessageContaining("unknownscheme");
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("allowed remote schemes");
     }
 }

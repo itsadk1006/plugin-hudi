@@ -50,7 +50,7 @@ import java.util.Optional;
                 triggers:
                   - id: watch_orders
                     type: io.kestra.plugin.hudi.Trigger
-                    basePath: hudi_tables/orders
+                    basePath: s3a://my-bucket/hudi/orders
                     tableName: orders
                     interval: PT1M
                 """
@@ -59,13 +59,13 @@ import java.util.Optional;
 )
 @Schema(
     title = "Wait for new commits in an Apache Hudi table",
-    description = "Polls the active timeline of an Apache Hudi table and triggers execution when new commits appear."
+    description = "Polls the active timeline of an Apache Hudi table and triggers execution when new commits appear. The table must be at a remote path, a trigger has no shared working directory."
 )
 public class Trigger extends AbstractTrigger implements PollingTriggerInterface, TriggerOutput<Trigger.Output> {
 
     @Schema(
         title = "The base path of the Hudi table",
-        description = "Path where the Hudi table is located (e.g., `orders`, `s3a://bucket/table`). Local paths (relative, absolute or `file://`) must be inside the working directory, and relative paths are resolved against it. Remote schemes are used as is."
+        description = "Remote path of the Hudi table (e.g., `s3a://bucket/table`). Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. Local or `file://` paths are not supported because a trigger has no shared working directory: it is new and empty on every check."
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -81,7 +81,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Schema(
         title = "Configuration properties for the Hudi connection",
-        description = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). Implementation class keys are not allowed: keys ending with `.impl`, `.class`, `.classname`, `.classnames` or `.factory`, or containing a `.impl.`, `.class.` or `.factory.` segment."
+        description = AbstractHudiConnection.CONFIGURATION_DESCRIPTION
     )
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
@@ -97,9 +97,14 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Override
     public Optional<Execution> evaluate(ConditionContext conditionContext, TriggerContext context) throws Exception {
+        var rBasePath = AbstractHudiConnection.resolveRemoteBasePath(conditionContext.getRunContext(), this.basePath);
+        return poll(conditionContext, context, rBasePath);
+    }
+
+    // Split from evaluate() so the polling logic can be tested without a remote file system.
+    Optional<Execution> poll(ConditionContext conditionContext, TriggerContext context, String rBasePath) throws Exception {
         var runContext = conditionContext.getRunContext();
         var logger = runContext.logger();
-        var rBasePath = AbstractHudiConnection.resolveBasePath(runContext, this.basePath);
         var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
 
         var hadoopConf = AbstractHudiConnection.hadoopConfiguration(runContext, this.configuration);

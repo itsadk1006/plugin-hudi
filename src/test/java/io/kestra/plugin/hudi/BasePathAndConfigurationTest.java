@@ -87,9 +87,41 @@ class BasePathAndConfigurationTest {
     @Test
     void remoteSchemeIsPassedThrough() throws Exception {
         var runContext = runContextFactory.of();
-        for (var basePath : List.of("s3a://bucket/table", "gs://bucket/table", "abfs://container@account.dfs.core.windows.net/table", "hdfs://namenode:8020/table")) {
+        for (var basePath : List.of(
+            "s3a://bucket/table", "gs://bucket/table", "abfs://container@account.dfs.core.windows.net/table",
+            "abfss://container@account.dfs.core.windows.net/table", "hdfs://namenode:8020/table",
+            "wasb://container@account.blob.core.windows.net/table", "wasbs://container@account.blob.core.windows.net/table"
+        )) {
             assertThat(resolve(runContext, basePath)).isEqualTo(basePath);
         }
+    }
+
+    @Test
+    void schemesOutsideTheAllowedListAreRejected() {
+        var runContext = runContextFactory.of();
+        for (var basePath : List.of(
+            "viewfs://cluster/table", "har://hdfs-namenode/table.har", "http://host/table", "https://host/table",
+            "ftp://host/table", "s3://bucket/table", "s3n://bucket/table", "unknownscheme://bucket/table"
+        )) {
+            assertThatThrownBy(() -> resolve(runContext, basePath))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("allowed remote schemes")
+                .hasMessageContaining("s3a")
+                .hasMessageContaining("abfss");
+        }
+    }
+
+    @Test
+    void remoteBasePathRejectsLocalPaths() {
+        var runContext = runContextFactory.of();
+        for (var basePath : List.of("table", "/tmp/table", "file:///tmp/table", "viewfs://cluster/table")) {
+            assertThatThrownBy(() -> AbstractHudiConnection.resolveRemoteBasePath(runContext, Property.ofValue(basePath)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("remote table path")
+                .hasMessageContaining("working directory");
+        }
+        assertThatCode(() -> AbstractHudiConnection.resolveRemoteBasePath(runContext, Property.ofValue("s3a://bucket/table")))
+            .doesNotThrowAnyException();
     }
 
     @Test
@@ -114,16 +146,21 @@ class BasePathAndConfigurationTest {
     void deniedConfigurationKeysAreRejected() {
         var runContext = runContextFactory.of();
         var keys = List.of(
-            "fs.s3a.impl", "fs.custom.impl", "FS.S3A.IMPL", "fs.impl.disable.cache.extra", "fs.s3a.aws.credentials.provider.class",
-            "hoodie.datasource.write.payload.class", "hoodie.some.classname", "hoodie.some.classnames", "hoodie.write.some.factory",
-            "hoodie.index.class.name", "hoodie.Some.Class"
+            "hoodie.write.lock.provider", "hoodie.write.commit.callback.on", "hoodie.write.commit.callback.http.url",
+            "hoodie.datasource.write.payload.class", "hoodie.some.classname", "hoodie.write.some.factory", "hoodie.some.impl",
+            "hoodie.index.class.name", "HOODIE.Some.Class", "hoodie.some.endpoint", "hoodie.compaction.strategy",
+            "io.compression.codecs", "io.serializations", "hadoop.security.group.mapping", "fs.defaultFS",
+            "fs.AbstractFileSystem.s3a.impl", "fs.viewfs.mounttable.cluster.link./data", "fs.s3a.impl", "fs.custom.impl", "FS.S3A.IMPL",
+            "fs.s3a.aws.credentials.provider", "fs.s3a.some.factory", "fs.gs.some.classname", "fs.azure.account.oauth.provider.type",
+            "fs.abfs.some.class", "fs.s3a.custom.signers", "unknown.key"
         );
 
         for (var key : keys) {
             assertThatThrownBy(() -> AbstractHudiConnection.hadoopConfiguration(runContext, Property.ofValue(Map.of(key, "value"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("'" + key + "'")
-                .hasMessageContaining("not allowed");
+                .hasMessageContaining("not allowed")
+                .hasMessageContaining("documentation");
         }
     }
 
@@ -151,6 +188,11 @@ class BasePathAndConfigurationTest {
             "fs.s3a.secret.key", "secret",
             "fs.s3a.endpoint", "http://localhost:9000",
             "fs.s3a.path.style.access", "true",
+            "fs.s3a.region", "eu-west-1",
+            "fs.s3a.session.token", "token",
+            "fs.s3a.connection.maximum", "10",
+            "fs.gs.project.id", "project",
+            "fs.azure.account.key.account.dfs.core.windows.net", "key",
             "hoodie.cleaner.commits.retained", "1"
         );
 
