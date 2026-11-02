@@ -8,7 +8,6 @@ import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -36,9 +35,9 @@ class UpsertTest {
     }
 
     @Test
-    void run(@TempDir Path tempDir) throws Exception {
+    void run() throws Exception {
         RunContext runContext = runContextFactory.of();
-        String basePath = tempDir.toUri().toString();
+        String basePath = HudiTestUtils.tableUri(runContext);
 
         Upsert task = Upsert.builder()
             .id(IdUtils.create())
@@ -92,11 +91,12 @@ class UpsertTest {
     }
 
     @Test
-    void failsOnMissingRecordKey(@TempDir Path tempDir) {
+    void failsOnMissingRecordKey() {
+        var runContext = runContextFactory.of();
         var task = Upsert.builder()
             .id(IdUtils.create())
             .type(Upsert.class.getName())
-            .basePath(Property.ofValue(tempDir.toUri().toString()))
+            .basePath(Property.ofValue(HudiTestUtils.tableUri(runContext)))
             .tableName(Property.ofValue("orders"))
             .recordKeyField(Property.ofValue("order_id"))
             .precombineField(Property.ofValue("updated_at"))
@@ -106,7 +106,6 @@ class UpsertTest {
             )))
             .build();
 
-        var runContext = runContextFactory.of();
         assertThatThrownBy(() -> task.run(runContext))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("Record at index 1 has no 'order_id' field");

@@ -31,7 +31,7 @@ import org.apache.hudi.common.util.Option;
                 tasks:
                   - id: compact_table
                     type: io.kestra.plugin.hudi.Compact
-                    basePath: file:///tmp/hudi_tables/orders
+                    basePath: hudi_tables/orders
                     tableName: orders
                 """
         )
@@ -46,7 +46,7 @@ public class Compact extends AbstractHudiMaintenance implements RunnableTask<Com
     @Override
     public Output run(RunContext runContext) throws Exception {
         var logger = runContext.logger();
-        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rBasePath = AbstractHudiConnection.resolveBasePath(runContext, this.basePath);
         var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
 
         logger.info("Compacting Hudi table '{}' at '{}'", rTableName, rBasePath);

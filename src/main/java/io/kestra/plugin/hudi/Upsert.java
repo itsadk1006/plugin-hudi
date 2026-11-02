@@ -38,7 +38,7 @@ import java.util.List;
                 tasks:
                   - id: upsert_records
                     type: io.kestra.plugin.hudi.Upsert
-                    basePath: file:///tmp/hudi_tables/orders
+                    basePath: hudi_tables/orders
                     tableName: orders
                     recordKeyField: order_id
                     precombineField: updated_at

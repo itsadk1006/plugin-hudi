@@ -7,9 +7,7 @@ import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -32,8 +30,8 @@ class TriggerTest {
     }
 
     @Test
-    void runTriggerPolling(@TempDir Path tempDir) throws Exception {
-        var basePath = tempDir.toUri().toString();
+    void runTriggerPolling() throws Exception {
+        var basePath = "table";
         var tableName = "orders_trigger";
         var trigger = trigger(basePath, tableName);
         var context = TestsUtils.mockTrigger(runContextFactory, trigger);
@@ -43,13 +41,13 @@ class TriggerTest {
         var upsertOutput = Upsert.builder()
             .id(IdUtils.create())
             .type(Upsert.class.getName())
-            .basePath(Property.ofValue(basePath))
+            .basePath(Property.ofValue(HudiTestUtils.tableUri(context.getKey().getRunContext())))
             .tableName(Property.ofValue(tableName))
             .recordKeyField(Property.ofValue("id"))
             .precombineField(Property.ofValue("ts"))
             .from(Property.ofValue(List.of(Map.of("id", "1", "ts", 1000L, "val", "A"))))
             .build()
-            .run(runContextFactory.of());
+            .run(context.getKey().getRunContext());
         assertThat(upsertOutput.getCommitInstantTime()).isNotBlank();
 
         var execution = trigger.evaluate(context.getKey(), context.getValue());

@@ -30,7 +30,7 @@ import lombok.experimental.SuperBuilder;
                 tasks:
                   - id: clean_table
                     type: io.kestra.plugin.hudi.Clean
-                    basePath: file:///tmp/hudi_tables/orders
+                    basePath: hudi_tables/orders
                     tableName: orders
                 """
         )
@@ -45,7 +45,7 @@ public class Clean extends AbstractHudiMaintenance implements RunnableTask<Clean
     @Override
     public Output run(RunContext runContext) throws Exception {
         var logger = runContext.logger();
-        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rBasePath = AbstractHudiConnection.resolveBasePath(runContext, this.basePath);
         var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
 
         logger.info("Cleaning Hudi table '{}' at '{}'", rTableName, rBasePath);

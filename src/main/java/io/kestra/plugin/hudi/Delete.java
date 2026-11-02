@@ -39,7 +39,7 @@ import java.util.Set;
                 tasks:
                   - id: delete_records
                     type: io.kestra.plugin.hudi.Delete
-                    basePath: file:///tmp/hudi_tables/orders
+                    basePath: hudi_tables/orders
                     tableName: orders
                     recordKeyField: order_id
                     from:
@@ -80,7 +80,7 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
     @Override
     public Output run(RunContext runContext) throws Exception {
         var logger = runContext.logger();
-        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rBasePath = AbstractHudiConnection.resolveBasePath(runContext, this.basePath);
         var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
         var rRecordKey = runContext.render(this.recordKeyField).as(String.class).orElseThrow(() -> new IllegalArgumentException("recordKeyField is required"));
         var rPartition = this.partitionPathField != null ? runContext.render(this.partitionPathField).as(String.class).orElse(null) : null;

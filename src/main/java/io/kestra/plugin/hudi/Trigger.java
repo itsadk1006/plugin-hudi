@@ -50,7 +50,7 @@ import java.util.Optional;
                 triggers:
                   - id: watch_orders
                     type: io.kestra.plugin.hudi.Trigger
-                    basePath: file:///tmp/hudi_tables/orders
+                    basePath: hudi_tables/orders
                     tableName: orders
                     interval: PT1M
                 """
@@ -65,7 +65,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Schema(
         title = "The base path of the Hudi table",
-        description = "Path where the Hudi table is located (e.g., file:///path/to/table, s3a://bucket/table)."
+        description = "Path where the Hudi table is located (e.g., `orders`, `s3a://bucket/table`). Local paths (relative, absolute or `file://`) must be inside the working directory, and relative paths are resolved against it. Remote schemes are used as is."
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -81,7 +81,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Schema(
         title = "Configuration properties for the Hudi connection",
-        description = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs)."
+        description = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). Implementation class keys are not allowed: keys ending with `.impl`, `.class`, `.classname`, `.classnames` or `.factory`, or containing a `.impl.`, `.class.` or `.factory.` segment."
     )
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
@@ -99,7 +99,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     public Optional<Execution> evaluate(ConditionContext conditionContext, TriggerContext context) throws Exception {
         var runContext = conditionContext.getRunContext();
         var logger = runContext.logger();
-        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rBasePath = AbstractHudiConnection.resolveBasePath(runContext, this.basePath);
         var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
 
         var hadoopConf = AbstractHudiConnection.hadoopConfiguration(runContext, this.configuration);

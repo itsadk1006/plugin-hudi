@@ -8,7 +8,6 @@ import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -36,9 +35,9 @@ class DeleteTest {
     }
 
     @Test
-    void runDelete(@TempDir Path tempDir) throws Exception {
+    void runDelete() throws Exception {
         RunContext runContext = runContextFactory.of();
-        String basePath = tempDir.toUri().toString();
+        String basePath = HudiTestUtils.tableUri(runContext);
 
         // Step 1: Insert records
         Upsert insertTask = Upsert.builder()
@@ -79,20 +78,20 @@ class DeleteTest {
     }
 
     @Test
-    void failsOnMissingTable(@TempDir Path tempDir) {
+    void failsOnMissingTable() {
+        var runContext = runContextFactory.of();
         var task = Delete.builder()
             .id(IdUtils.create())
             .type(Delete.class.getName())
-            .basePath(Property.ofValue(tempDir.toUri().toString()))
+            .basePath(Property.ofValue(HudiTestUtils.tableUri(runContext)))
             .tableName(Property.ofValue("orders_delete"))
             .recordKeyField(Property.ofValue("order_id"))
             .from(Property.ofValue(List.of(Map.of("order_id", "301"))))
             .build();
 
-        var runContext = runContextFactory.of();
         assertThatThrownBy(() -> task.run(runContext))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("No Hudi table at");
-        assertThat(tempDir.resolve(".hoodie")).doesNotExist();
+        assertThat(HudiTestUtils.tablePath(runContext).resolve(".hoodie")).doesNotExist();
     }
 }

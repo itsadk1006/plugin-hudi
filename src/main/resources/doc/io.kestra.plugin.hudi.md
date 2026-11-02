@@ -8,7 +8,7 @@ Every task and the trigger take the same connection properties:
 
 - `basePath` (required): table location, for example `file:///data/hudi/orders`.
 - `tableName` (required): name of the Hudi table.
-- `configuration` (optional, secret): map of Hadoop and Hudi settings, for example storage credentials or `hoodie.*` write configs.
+- `configuration` (optional, secret): map of Hadoop and Hudi settings, for example storage credentials or `hoodie.*` write configs. Implementation class keys (ending with `.impl`, `.class`, `.classname`, `.classnames` or `.factory`) are not allowed.
 
 `configuration` is marked as a secret and is hidden from logs. Store credentials in [secrets](https://kestra.io/docs/concepts/secret) and reference them with `{{ secret('NAME') }}`. To share the same connection across flows, use [plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults).
 
@@ -62,7 +62,7 @@ tasks:
 triggers:
   - id: wait_for_commit
     type: io.kestra.plugin.hudi.Trigger
-    basePath: file:///data/hudi/orders
+    basePath: hudi_tables/orders
     tableName: orders
     interval: PT2M
 ```

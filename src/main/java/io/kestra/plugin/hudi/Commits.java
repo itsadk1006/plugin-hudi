@@ -39,7 +39,7 @@ import java.util.Map;
                 tasks:
                   - id: list_commits
                     type: io.kestra.plugin.hudi.Commits
-                    basePath: file:///tmp/hudi_tables/orders
+                    basePath: hudi_tables/orders
                     tableName: orders
                     fetchType: FETCH
                 """
@@ -63,7 +63,7 @@ public class Commits extends AbstractHudiConnection implements RunnableTask<Comm
     @Override
     public Output run(RunContext runContext) throws Exception {
         var logger = runContext.logger();
-        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rBasePath = AbstractHudiConnection.resolveBasePath(runContext, this.basePath);
         var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
         var rFetchType = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
 

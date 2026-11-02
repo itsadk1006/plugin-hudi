@@ -10,6 +10,8 @@ import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.parquet.avro.AvroParquetReader;
 
+import io.kestra.core.runners.RunContext;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +19,15 @@ import java.util.List;
 final class HudiTestUtils {
 
     private HudiTestUtils() {
+    }
+
+    /** Table location inside the run working directory, the only place local tables are allowed. */
+    static java.nio.file.Path tablePath(RunContext runContext) {
+        return runContext.workingDir().path().resolve("table");
+    }
+
+    static String tableUri(RunContext runContext) {
+        return tablePath(runContext).toUri().toString();
     }
 
     static List<GenericRecord> readLatestRecords(String basePath) throws IOException {

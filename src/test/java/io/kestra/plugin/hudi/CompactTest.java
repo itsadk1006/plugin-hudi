@@ -11,7 +11,6 @@ import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 
@@ -42,36 +41,37 @@ class CompactTest {
     }
 
     @Test
-    void runCompact(@TempDir Path tempDir) throws Exception {
-        var basePath = tempDir.toUri().toString();
+    void runCompact() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
         initMorTable(basePath);
 
-        var runOutput = compact(basePath).run(runContextFactory.of());
+        var runOutput = compact(basePath).run(runContext);
 
         assertThat(runOutput).isNotNull();
         assertThat(runOutput.getInstantTime()).isNull();
     }
 
     @Test
-    void failsOnMissingTable(@TempDir Path tempDir) {
-        var task = compact(tempDir.toUri().toString());
+    void failsOnMissingTable() {
         var runContext = runContextFactory.of();
+        var task = compact(HudiTestUtils.tableUri(runContext));
 
         assertThatThrownBy(() -> task.run(runContext))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("No Hudi table at");
-        assertThat(tempDir.resolve(".hoodie")).doesNotExist();
+        assertThat(HudiTestUtils.tablePath(runContext).resolve(".hoodie")).doesNotExist();
     }
 
     @Test
-    void testKillCancellation(@TempDir Path tempDir) throws Exception {
-        var basePath = tempDir.toUri().toString();
+    void testKillCancellation() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
         initMorTable(basePath);
 
         var task = compact(basePath);
         task.kill();
 
-        var runContext = runContextFactory.of();
         assertThatThrownBy(() -> task.run(runContext)).isInstanceOf(IllegalStateException.class);
     }
 }

@@ -31,7 +31,14 @@ import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 import java.util.Map;
 import java.util.Properties;
 
@@ -81,7 +88,7 @@ public abstract class AbstractHudiConnection extends Task {
 
     @Schema(
         title = "The base path of the Hudi table",
-        description = "Path where the Hudi table is located (e.g., file:///path/to/table, s3a://bucket/table)."
+        description = "Path where the Hudi table is located (e.g., `orders`, `s3a://bucket/table`). Local paths (relative, absolute or `file://`) must be inside the working directory, and relative paths are resolved against it. Remote schemes are used as is."
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -97,7 +104,7 @@ public abstract class AbstractHudiConnection extends Task {
 
     @Schema(
         title = "Configuration properties for the Hudi connection",
-        description = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs)."
+        description = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). Implementation class keys are not allowed: keys ending with `.impl`, `.class`, `.classname`, `.classnames` or `.factory`, or containing a `.impl.`, `.class.` or `.factory.` segment."
     )
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
@@ -120,15 +127,91 @@ public abstract class AbstractHudiConnection extends Task {
             }
         }
 
-        if (configuration != null) {
-            var rConfiguration = runContext.render(configuration).asMap(String.class, String.class);
-            rConfiguration.forEach((key, val) -> {
+        renderConfiguration(runContext, configuration).forEach(hadoopConf::set);
+        return hadoopConf;
+    }
+
+    private static Map<String, String> renderConfiguration(RunContext runContext, Property<Map<String, String>> configuration) throws IllegalVariableEvaluationException {
+        var result = new LinkedHashMap<String, String>();
+        if (configuration == null) {
+            return result;
+        }
+
+        var rendered = runContext.render(configuration).asMap(String.class, String.class);
+        if (rendered != null) {
+            rendered.forEach((key, val) -> {
+                validateConfigurationKey(key);
                 if (val != null) {
-                    hadoopConf.set(key, val);
+                    result.put(key, val);
                 }
             });
         }
-        return hadoopConf;
+        return result;
+    }
+
+    /**
+     * Suffixes and segments (compared in lower case) that designate implementation classes or factories.
+     * Credentials, endpoints and plain tuning keys such as {@code hoodie.cleaner.commits.retained} are not affected.
+     */
+    private static final List<String> DENIED_KEY_SUFFIXES = List.of(".impl", ".class", ".classname", ".classnames", ".factory", ".provider.class");
+    private static final List<String> DENIED_KEY_SEGMENTS = List.of(".impl.", ".class.", ".factory.");
+
+    static void validateConfigurationKey(String key) {
+        var lower = key == null ? "" : key.toLowerCase(Locale.ROOT);
+        if (DENIED_KEY_SUFFIXES.stream().anyMatch(lower::endsWith) || DENIED_KEY_SEGMENTS.stream().anyMatch(lower::contains)) {
+            throw new IllegalArgumentException("Configuration key '" + key + "' is not allowed: implementation class keys cannot be set, remove it from 'configuration'");
+        }
+    }
+
+    private static final Pattern SCHEME = Pattern.compile("^([a-zA-Z][a-zA-Z0-9+.-]+):");
+
+    /**
+     * Renders {@code basePath}. Remote schemes are returned unchanged; local paths (scheme-less or {@code file:})
+     * are resolved against the working directory and must stay inside it once normalized and symlinks are resolved.
+     */
+    public static String resolveBasePath(RunContext runContext, Property<String> basePath) throws IllegalVariableEvaluationException, IOException {
+        var rendered = runContext.render(basePath).as(String.class)
+            .filter(v -> !v.isBlank())
+            .orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+
+        var schemeMatcher = SCHEME.matcher(rendered);
+        String localPath;
+        if (schemeMatcher.find()) {
+            if (!"file".equalsIgnoreCase(schemeMatcher.group(1))) {
+                return rendered;
+            }
+            try {
+                var uri = new URI(rendered);
+                if (uri.getPath() == null || (uri.getAuthority() != null && !uri.getAuthority().isEmpty())) {
+                    throw new IllegalArgumentException("Invalid basePath '" + rendered + "', use a path under the working directory, e.g. a relative path or file:///<working directory>/table");
+                }
+                localPath = uri.getPath();
+            } catch (URISyntaxException e) {
+                throw new IllegalArgumentException("Invalid basePath '" + rendered + "': " + e.getMessage(), e);
+            }
+        } else {
+            localPath = rendered;
+        }
+
+        var workingDir = runContext.workingDir().path().toRealPath();
+        var real = realPathOfExistingPrefix(workingDir.resolve(localPath).normalize());
+        if (!real.startsWith(workingDir)) {
+            throw new IllegalArgumentException("basePath '" + rendered + "' must be inside the working directory, use a path under the working directory (relative paths are resolved against it)");
+        }
+
+        var uri = real.toUri().toString();
+        return uri.endsWith("/") ? uri.substring(0, uri.length() - 1) : uri;
+    }
+
+    private static java.nio.file.Path realPathOfExistingPrefix(java.nio.file.Path path) throws IOException {
+        var existing = path;
+        while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
+            existing = existing.getParent();
+        }
+        if (existing == null) {
+            return path;
+        }
+        return existing.toRealPath().resolve(existing.relativize(path)).normalize();
     }
 
     public static boolean tableExists(Configuration hadoopConf, String rBasePath) throws IOException {
@@ -205,16 +288,9 @@ public abstract class AbstractHudiConnection extends Task {
 
         // Apply custom configs
         if (this.configuration != null) {
-            Map<String, String> rendered = runContext.render(this.configuration).asMap(String.class, String.class);
-            if (rendered != null) {
-                Properties customProps = new Properties();
-                rendered.forEach((k, v) -> {
-                    if (v != null) {
-                        customProps.setProperty(k, v);
-                    }
-                });
-                builder.withProperties(customProps);
-            }
+            Properties customProps = new Properties();
+            renderConfiguration(runContext, this.configuration).forEach(customProps::setProperty);
+            builder.withProperties(customProps);
         }
 
         return builder;

@@ -8,7 +8,6 @@ import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -35,9 +34,9 @@ class InsertTest {
     }
 
     @Test
-    void runInsert(@TempDir Path tempDir) throws Exception {
+    void runInsert() throws Exception {
         RunContext runContext = runContextFactory.of();
-        String basePath = tempDir.toUri().toString();
+        String basePath = HudiTestUtils.tableUri(runContext);
 
         Insert task = Insert.builder()
             .id(IdUtils.create())

@@ -6,7 +6,6 @@ import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -31,8 +30,9 @@ class ClusterTest {
     }
 
     @Test
-    void runCluster(@TempDir Path tempDir) throws Exception {
-        var basePath = tempDir.toUri().toString();
+    void runCluster() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
         Upsert.builder()
             .id(IdUtils.create())
             .type(Upsert.class.getName())
@@ -45,18 +45,18 @@ class ClusterTest {
                 Map.of("order_id", "2", "updated_at", 1000L, "status", "PENDING")
             )))
             .build()
-            .run(runContextFactory.of());
+            .run(runContext);
 
-        var runOutput = cluster(basePath).run(runContextFactory.of());
+        var runOutput = cluster(basePath).run(runContext);
 
         assertThat(runOutput).isNotNull();
         assertThat(HudiTestUtils.readLatestRecords(basePath)).hasSize(2);
     }
 
     @Test
-    void failsOnMissingTable(@TempDir Path tempDir) {
-        var task = cluster(tempDir.toUri().toString());
+    void failsOnMissingTable() {
         var runContext = runContextFactory.of();
+        var task = cluster(HudiTestUtils.tableUri(runContext));
 
         assertThatThrownBy(() -> task.run(runContext))
             .isInstanceOf(IllegalArgumentException.class)

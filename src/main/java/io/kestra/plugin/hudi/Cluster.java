@@ -35,7 +35,7 @@ import org.apache.hudi.config.HoodieClusteringConfig;
                 tasks:
                   - id: cluster_table
                     type: io.kestra.plugin.hudi.Cluster
-                    basePath: file:///tmp/hudi_tables/orders
+                    basePath: hudi_tables/orders
                     tableName: orders
                 """
         )
@@ -50,7 +50,7 @@ public class Cluster extends AbstractHudiMaintenance implements RunnableTask<Clu
     @Override
     public Output run(RunContext runContext) throws Exception {
         var logger = runContext.logger();
-        var rBasePath = runContext.render(this.basePath).as(String.class).orElseThrow(() -> new IllegalArgumentException("basePath is required"));
+        var rBasePath = AbstractHudiConnection.resolveBasePath(runContext, this.basePath);
         var rTableName = runContext.render(this.tableName).as(String.class).orElseThrow(() -> new IllegalArgumentException("tableName is required"));
 
         logger.info("Clustering Hudi table '{}' at '{}'", rTableName, rBasePath);

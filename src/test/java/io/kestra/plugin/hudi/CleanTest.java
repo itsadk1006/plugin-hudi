@@ -2,11 +2,11 @@ package io.kestra.plugin.hudi;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
+import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -21,7 +21,7 @@ class CleanTest {
     @Inject
     private RunContextFactory runContextFactory;
 
-    private void upsert(String basePath, long updatedAt, String status) throws Exception {
+    private void upsert(RunContext runContext, String basePath, long updatedAt, String status) throws Exception {
         Upsert.builder()
             .id(IdUtils.create())
             .type(Upsert.class.getName())
@@ -31,15 +31,16 @@ class CleanTest {
             .precombineField(Property.ofValue("updated_at"))
             .from(Property.ofValue(List.of(Map.of("order_id", "1", "updated_at", updatedAt, "status", status))))
             .build()
-            .run(runContextFactory.of());
+            .run(runContext);
     }
 
     @Test
-    void runClean(@TempDir Path tempDir) throws Exception {
-        var basePath = tempDir.toUri().toString();
-        upsert(basePath, 1000L, "CREATED");
-        upsert(basePath, 2000L, "PENDING");
-        upsert(basePath, 3000L, "COMPLETED");
+    void runClean() throws Exception {
+        var runContext = runContextFactory.of();
+        var basePath = HudiTestUtils.tableUri(runContext);
+        upsert(runContext, basePath, 1000L, "CREATED");
+        upsert(runContext, basePath, 2000L, "PENDING");
+        upsert(runContext, basePath, 3000L, "COMPLETED");
 
         var task = Clean.builder()
             .id(IdUtils.create())
@@ -49,7 +50,7 @@ class CleanTest {
             .configuration(Property.ofValue(Map.of("hoodie.cleaner.commits.retained", "1")))
             .build();
 
-        var runOutput = task.run(runContextFactory.of());
+        var runOutput = task.run(runContext);
 
         assertThat(runOutput.getInstantTime()).isNotBlank();
         assertThat(runOutput.getFilesCleaned()).isGreaterThanOrEqualTo(1L);
@@ -60,14 +61,14 @@ class CleanTest {
     }
 
     @Test
-    void failsOnMissingTable(@TempDir Path tempDir) {
+    void failsOnMissingTable() {
+        var runContext = runContextFactory.of();
         var task = Clean.builder()
             .id(IdUtils.create())
             .type(Clean.class.getName())
-            .basePath(Property.ofValue(tempDir.toUri().toString()))
+            .basePath(Property.ofValue(HudiTestUtils.tableUri(runContext)))
             .tableName(Property.ofValue("orders_clean"))
             .build();
-        var runContext = runContextFactory.of();
 
         assertThatThrownBy(() -> task.run(runContext))
             .isInstanceOf(IllegalArgumentException.class)

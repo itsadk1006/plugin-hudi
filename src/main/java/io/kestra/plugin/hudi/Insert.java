@@ -37,7 +37,7 @@ import java.util.List;
                 tasks:
                   - id: insert_records
                     type: io.kestra.plugin.hudi.Insert
-                    basePath: file:///tmp/hudi_tables/orders
+                    basePath: hudi_tables/orders
                     tableName: orders
                     recordKeyField: order_id
                     from:
