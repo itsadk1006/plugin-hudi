@@ -59,13 +59,17 @@ import java.util.Optional;
 )
 @Schema(
     title = "Wait for new commits in an Apache Hudi table",
-    description = "Polls the active timeline of an Apache Hudi table and triggers execution when new commits appear. The table must be at a remote path, a trigger has no shared working directory."
+    description = """
+        Polls the active timeline of an Apache Hudi table and triggers execution when new commits appear. The table must be at a remote path, a trigger has no shared working directory.
+        """
 )
 public class Trigger extends AbstractTrigger implements PollingTriggerInterface, TriggerOutput<Trigger.Output> {
 
     @Schema(
         title = "The base path of the Hudi table",
-        description = "Remote path of the Hudi table (e.g., `s3a://bucket/table`). Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. Local or `file://` paths are not supported because a trigger has no shared working directory: it is new and empty on every check."
+        description = """
+            Remote path of the Hudi table (e.g., `s3a://bucket/table`). Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. Local or `file://` paths are not supported because a trigger has no shared working directory: it is new and empty on every check.
+            """
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -73,7 +77,9 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Schema(
         title = "The name of the Hudi table",
-        description = "Target Apache Hudi table name."
+        description = """
+            Target Apache Hudi table name.
+            """
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -89,7 +95,9 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Schema(
         title = "Polling interval",
-        description = "The duration between successive checks against the Hudi table timeline."
+        description = """
+            The duration between successive checks against the Hudi table timeline.
+            """
     )
     @PluginProperty(group = "processing")
     @Builder.Default
@@ -164,25 +172,33 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Latest commit instant timestamp",
-            description = "The timestamp of the latest completed commit on the active timeline."
+            description = """
+                The timestamp of the latest completed commit on the active timeline.
+                """
         )
         private String lastCommitTime;
 
         @Schema(
             title = "Action type",
-            description = "The action type of the latest commit (e.g. commit, deltacommit)."
+            description = """
+                The action type of the latest commit (e.g. commit, deltacommit).
+                """
         )
         private String action;
 
         @Schema(
             title = "Table name",
-            description = "The name of the triggered Hudi table."
+            description = """
+                The name of the triggered Hudi table.
+                """
         )
         private String tableName;
 
         @Schema(
             title = "Base path",
-            description = "The base path of the triggered Hudi table."
+            description = """
+                The base path of the triggered Hudi table.
+                """
         )
         private String basePath;
     }

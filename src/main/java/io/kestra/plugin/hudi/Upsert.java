@@ -81,13 +81,17 @@ import java.util.List;
 )
 @Schema(
     title = "Upsert data into an Apache Hudi table",
-    description = "Upsert records into an Apache Hudi table using HoodieJavaWriteClient."
+    description = """
+        Upsert records into an Apache Hudi table using HoodieJavaWriteClient.
+        """
 )
 public class Upsert extends AbstractHudiWrite implements RunnableTask<AbstractHudiWrite.Output> {
 
     @Schema(
         title = "Precombine field",
-        description = "Field name to determine the latest record when deduplicating."
+        description = """
+            Field name to determine the latest record when deduplicating.
+            """
     )
     @PluginProperty(group = "processing")
     @NotNull

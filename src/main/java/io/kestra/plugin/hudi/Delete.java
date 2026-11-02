@@ -50,13 +50,17 @@ import java.util.Set;
 )
 @Schema(
     title = "Delete data from an Apache Hudi table",
-    description = "Delete records from an Apache Hudi table using HoodieJavaWriteClient."
+    description = """
+        Delete records from an Apache Hudi table using HoodieJavaWriteClient.
+        """
 )
 public class Delete extends AbstractHudiConnection implements RunnableTask<Delete.Output> {
 
     @Schema(
         title = "Record key field",
-        description = "Field name to extract the record key from incoming records."
+        description = """
+            Field name to extract the record key from incoming records.
+            """
     )
     @PluginProperty(group = "processing")
     @NotNull
@@ -64,14 +68,18 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
 
     @Schema(
         title = "Partition path field",
-        description = "Field name to extract the partition path. Defaults to empty for non-partitioned tables."
+        description = """
+            Field name to extract the partition path. Defaults to empty for non-partitioned tables.
+            """
     )
     @PluginProperty(group = "processing")
     private Property<String> partitionPathField;
 
     @Schema(
         title = "Source keys or records",
-        description = "Keys or records to delete. Can be a list of maps, strings, or a Kestra internal storage URI (kestra://...)."
+        description = """
+            Keys or records to delete. Can be a list of maps, strings, or a Kestra internal storage URI (kestra://...).
+            """
     )
     @PluginProperty(group = "processing")
     @NotNull
@@ -138,19 +146,25 @@ public class Delete extends AbstractHudiConnection implements RunnableTask<Delet
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Number of records deleted",
-            description = "Number of records actually deleted, as reported by the Hudi write statuses. Keys that do not exist are not counted."
+            description = """
+                Number of records actually deleted, as reported by the Hudi write statuses. Keys that do not exist are not counted.
+                """
         )
         private Long recordCount;
 
         @Schema(
             title = "Commit instant timestamp",
-            description = "The instant timestamp generated for this commit on the Hudi active timeline."
+            description = """
+                The instant timestamp generated for this commit on the Hudi active timeline.
+                """
         )
         private String commitInstantTime;
 
         @Schema(
             title = "Affected partition paths",
-            description = "List of partition paths modified during the delete operation."
+            description = """
+                List of partition paths modified during the delete operation.
+                """
         )
         private List<String> affectedPartitions;
     }

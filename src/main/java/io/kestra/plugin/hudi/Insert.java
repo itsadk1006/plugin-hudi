@@ -50,13 +50,17 @@ import java.util.List;
 )
 @Schema(
     title = "Insert data into an Apache Hudi table",
-    description = "Insert records into an Apache Hudi table using HoodieJavaWriteClient."
+    description = """
+        Insert records into an Apache Hudi table using HoodieJavaWriteClient.
+        """
 )
 public class Insert extends AbstractHudiWrite implements RunnableTask<AbstractHudiWrite.Output> {
 
     @Schema(
         title = "Precombine field",
-        description = "Field name to determine the latest record when deduplicating."
+        description = """
+            Field name to determine the latest record when deduplicating.
+            """
     )
     @PluginProperty(group = "processing")
     private Property<String> precombineField;

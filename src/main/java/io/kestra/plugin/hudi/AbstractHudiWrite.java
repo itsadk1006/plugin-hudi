@@ -33,7 +33,9 @@ public abstract class AbstractHudiWrite extends AbstractHudiConnection {
 
     @Schema(
         title = "Record key field",
-        description = "Field name to use as the record key for Hudi records."
+        description = """
+            Field name to use as the record key for Hudi records.
+            """
     )
     @PluginProperty(group = "processing")
     @NotNull
@@ -41,21 +43,27 @@ public abstract class AbstractHudiWrite extends AbstractHudiConnection {
 
     @Schema(
         title = "Partition path field",
-        description = "Field name to use as partition path. Defaults to empty for non-partitioned tables."
+        description = """
+            Field name to use as partition path. Defaults to empty for non-partitioned tables.
+            """
     )
     @PluginProperty(group = "processing")
     private Property<String> partitionPathField;
 
     @Schema(
         title = "Avro schema",
-        description = "Optional Avro schema JSON string. If omitted, schema is inferred from records."
+        description = """
+            Optional Avro schema JSON string. If omitted, schema is inferred from records.
+            """
     )
     @PluginProperty(group = "processing")
     private Property<String> schema;
 
     @Schema(
         title = "Source data",
-        description = "Data to write. Can be an inline list of maps or a Kestra internal storage URI (kestra://...)."
+        description = """
+            Data to write. Can be an inline list of maps or a Kestra internal storage URI (kestra://...).
+            """
     )
     @PluginProperty(group = "processing")
     @NotNull
@@ -137,19 +145,25 @@ public abstract class AbstractHudiWrite extends AbstractHudiConnection {
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Number of records written",
-            description = "Total number of records written by the operation, as reported by the Hudi write statuses."
+            description = """
+                Total number of records written by the operation, as reported by the Hudi write statuses.
+                """
         )
         private Long recordCount;
 
         @Schema(
             title = "Commit instant timestamp",
-            description = "The instant timestamp generated for this commit on the Hudi active timeline."
+            description = """
+                The instant timestamp generated for this commit on the Hudi active timeline.
+                """
         )
         private String commitInstantTime;
 
         @Schema(
             title = "Affected partition paths",
-            description = "List of partition paths modified during the operation."
+            description = """
+                List of partition paths modified during the operation.
+                """
         )
         private List<String> affectedPartitions;
     }

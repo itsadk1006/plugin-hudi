@@ -18,11 +18,11 @@ import org.apache.hadoop.io.nativeio.NativeIO;
 import org.apache.hudi.client.HoodieJavaWriteClient;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.common.HoodieJavaEngineContext;
+import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.model.HoodieAvroPayload;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
@@ -30,7 +30,6 @@ import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -38,9 +37,9 @@ import java.nio.file.LinkOption;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Pattern;
 import java.util.Map;
 import java.util.Properties;
+import java.util.regex.Pattern;
 
 @SuperBuilder
 @ToString
@@ -55,15 +54,15 @@ public abstract class AbstractHudiConnection extends Task {
 
     public static void disableNativeIOOnWindows() {
         if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
-            String[] possibleDllPaths = new String[]{
+            var possibleDllPaths = new String[]{
                 System.getenv("HADOOP_HOME") != null ? System.getenv("HADOOP_HOME") + File.separator + "bin" + File.separator + "hadoop.dll" : null,
                 System.getProperty("hadoop.home.dir") != null ? System.getProperty("hadoop.home.dir") + File.separator + "bin" + File.separator + "hadoop.dll" : null,
                 "C:\\hadoop\\bin\\hadoop.dll"
             };
-            boolean loaded = false;
-            for (String p : possibleDllPaths) {
+            var loaded = false;
+            for (var p : possibleDllPaths) {
                 if (p != null) {
-                    File dll = new File(p);
+                    var dll = new File(p);
                     if (dll.exists()) {
                         try {
                             System.load(dll.getAbsolutePath());
@@ -77,7 +76,7 @@ public abstract class AbstractHudiConnection extends Task {
             if (!loaded) {
                 try {
                     Class.forName("org.apache.hadoop.io.nativeio.NativeIO");
-                    Field field = NativeIO.class.getDeclaredField("nativeLoaded");
+                    var field = NativeIO.class.getDeclaredField("nativeLoaded");
                     field.setAccessible(true);
                     field.set(null, false);
                 } catch (Throwable ignored) {
@@ -86,21 +85,25 @@ public abstract class AbstractHudiConnection extends Task {
         }
     }
 
-    static final String BASE_PATH_DESCRIPTION = "Path where the Hudi table is located (e.g., `orders`, `s3a://bucket/table`). "
-        + "Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. "
-        + "Local paths (relative, absolute or `file://`) must be inside the working directory, and relative paths are resolved against it. "
-        + "A local table only lives as long as the working directory of the task. "
-        + "Remote `s3a`, `gs` and `abfs` paths need the matching Hadoop connector on the worker classpath, which is not bundled.";
+    static final String BASE_PATH_DESCRIPTION = """
+        Path where the Hudi table is located (e.g., `orders`, `s3a://bucket/table`). \
+        Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. \
+        Local paths (relative, absolute or `file://`) must be inside the working directory, and relative paths are resolved against it. \
+        A local table only lives as long as the working directory of the task. \
+        Remote `s3a`, `gs` and `abfs` paths need the matching Hadoop connector on the worker classpath, which is not bundled.
+        """;
 
-    static final String CONFIGURATION_DESCRIPTION = "Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). "
-        + "Allowed configuration keys start with `hoodie.`, `fs.s3a.`, `fs.gs.`, `fs.azure.` or `fs.abfs.`. "
-        + "Within `hoodie.`, only write and table tuning keys are accepted: record key, precombine and partition path fields, table name and type, index type, "
-        + "insert, upsert, bulk insert and delete parallelism, `hoodie.cleaner.*`, `hoodie.clean.*`, `hoodie.compact.*`, `hoodie.clustering.*`, `hoodie.archive.*`, `hoodie.keep.*`, "
-        + "`hoodie.parquet.*`, `hoodie.logfile.*`, `hoodie.copyonwrite.*` and `hoodie.index.bloom.*`. Other `hoodie.` keys are rejected, as is any key ending with `.path` or `.dir`, "
-        + "or containing `.class`, `.impl`, `.factory` or `classname`. "
-        + "Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors`, `binding`, `keyfile` or `keytab`, are not allowed; "
-        + "the credential and endpoint keys `access.key`, `secret.key`, `session.token`, `endpoint`, `path.style.access` and `region` (e.g. `fs.s3a.access.key`) are always accepted. "
-        + "`fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`.";
+    static final String CONFIGURATION_DESCRIPTION = """
+        Key-value configuration map (e.g., Hadoop/AWS/GCS credentials, Hudi write configs). \
+        Allowed configuration keys start with `hoodie.`, `fs.s3a.`, `fs.gs.`, `fs.azure.` or `fs.abfs.`. \
+        Within `hoodie.`, only write and table tuning keys are accepted: record key, precombine and partition path fields, table name and type, index type, \
+        insert, upsert, bulk insert and delete parallelism, `hoodie.cleaner.*`, `hoodie.clean.*`, `hoodie.compact.*`, `hoodie.clustering.*`, `hoodie.archive.*`, `hoodie.keep.*`, \
+        `hoodie.parquet.*`, `hoodie.logfile.*`, `hoodie.copyonwrite.*` and `hoodie.index.bloom.*`. Other `hoodie.` keys are rejected, as is any key ending with `.path` or `.dir`, \
+        or containing `.class`, `.impl`, `.factory` or `classname`. \
+        Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors`, `binding`, `keyfile` or `keytab`, are not allowed; \
+        the credential and endpoint keys `access.key`, `secret.key`, `session.token`, `endpoint`, `path.style.access` and `region` (e.g. `fs.s3a.access.key`) are always accepted. \
+        `fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`.
+        """;
 
     @Schema(
         title = "The base path of the Hudi table",
@@ -112,7 +115,9 @@ public abstract class AbstractHudiConnection extends Task {
 
     @Schema(
         title = "The name of the Hudi table",
-        description = "Target Apache Hudi table name."
+        description = """
+            Target Apache Hudi table name.
+            """
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -380,22 +385,21 @@ public abstract class AbstractHudiConnection extends Task {
 
     public HoodieWriteConfig.Builder baseWriteConfigBuilder(
         RunContext runContext,
-        String renderedBasePath,
-        String renderedTableName
+        String rBasePath,
+        String rTableName
     ) throws IllegalVariableEvaluationException {
-        HoodieWriteConfig.Builder builder = HoodieWriteConfig.newBuilder()
-            .withPath(renderedBasePath)
-            .forTable(renderedTableName)
+        var builder = HoodieWriteConfig.newBuilder()
+            .withPath(rBasePath)
+            .forTable(rTableName)
             .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.BLOOM).build())
             .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
             .withEmbeddedTimelineServerEnabled(false);
 
-        // Apply custom configs
         if (this.configuration != null) {
-            Properties customProps = new Properties();
+            var customProps = new Properties();
             renderConfiguration(runContext, this.configuration).forEach(customProps::setProperty);
             builder.withProperties(customProps);
-            builder.withPath(renderedBasePath).forTable(renderedTableName);
+            builder.withPath(rBasePath).forTable(rTableName);
         }
 
         return builder;
@@ -405,8 +409,8 @@ public abstract class AbstractHudiConnection extends Task {
         RunContext runContext,
         HoodieWriteConfig writeConfig
     ) throws IllegalVariableEvaluationException {
-        Configuration hadoopConf = buildHadoopConfiguration(runContext);
-        HoodieJavaEngineContext engineContext = new HoodieJavaEngineContext(new HadoopStorageConfiguration(hadoopConf));
+        var hadoopConf = buildHadoopConfiguration(runContext);
+        var engineContext = new HoodieJavaEngineContext(new HadoopStorageConfiguration(hadoopConf));
         return new HoodieJavaWriteClient<>(engineContext, writeConfig);
     }
 }

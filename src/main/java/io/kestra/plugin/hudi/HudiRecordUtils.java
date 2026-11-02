@@ -22,7 +22,6 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public abstract class HudiRecordUtils {
 
@@ -33,12 +32,12 @@ public abstract class HudiRecordUtils {
         }
 
         if (fromObj instanceof List<?> list) {
-            List<Map<String, Object>> records = new ArrayList<>(list.size());
-            for (Object item : list) {
+            var records = new ArrayList<Map<String, Object>>(list.size());
+            for (var item : list) {
                 if (item instanceof Map<?, ?> map) {
                     records.add((Map<String, Object>) map);
                 } else {
-                    Map<String, Object> converted = JacksonMapper.ofJson().convertValue(item, new TypeReference<>() {});
+                    var converted = JacksonMapper.ofJson().convertValue(item, new TypeReference<Map<String, Object>>() {});
                     records.add(converted);
                 }
             }
@@ -49,12 +48,12 @@ public abstract class HudiRecordUtils {
             return List.of((Map<String, Object>) map);
         }
 
-        String str = fromObj.toString();
+        var str = fromObj.toString();
         if (str.startsWith("kestra://")) {
-            List<Map<String, Object>> records = new ArrayList<>();
-            URI uri = URI.create(str);
-            try (InputStream is = runContext.storage().getFile(uri);
-                 BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+            var records = new ArrayList<Map<String, Object>>();
+            var uri = URI.create(str);
+            try (var is = runContext.storage().getFile(uri);
+                 var reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     line = line.trim();
@@ -67,11 +66,10 @@ public abstract class HudiRecordUtils {
             return records;
         }
 
-        // Try parsing string as JSON array or single JSON object
         try {
             return JacksonMapper.ofJson().readValue(str, new TypeReference<List<Map<String, Object>>>() {});
         } catch (Exception e) {
-            Map<String, Object> single = JacksonMapper.ofJson().readValue(str, new TypeReference<>() {});
+            var single = JacksonMapper.ofJson().readValue(str, new TypeReference<Map<String, Object>>() {});
             return List.of(single);
         }
     }
@@ -81,14 +79,14 @@ public abstract class HudiRecordUtils {
             return new Schema.Parser().parse(userSchema);
         }
 
-        Set<String> fieldNames = new LinkedHashSet<>();
+        var fieldNames = new LinkedHashSet<String>();
         if (recordKeyField != null && !recordKeyField.isBlank()) {
             fieldNames.add(recordKeyField);
         }
         if (precombineField != null && !precombineField.isBlank()) {
             fieldNames.add(precombineField);
         }
-        for (Map<String, Object> r : records) {
+        for (var r : records) {
             fieldNames.addAll(r.keySet());
         }
 
@@ -96,21 +94,21 @@ public abstract class HudiRecordUtils {
             fieldNames.add("id");
         }
 
-        StringBuilder sb = new StringBuilder();
+        var sb = new StringBuilder();
         sb.append("{\"type\":\"record\",\"name\":\"hudi_record\",\"namespace\":\"io.kestra.plugin.hudi\",\"fields\":[");
-        int index = 0;
-        for (String fieldName : fieldNames) {
+        var index = 0;
+        for (var fieldName : fieldNames) {
             if (index++ > 0) {
                 sb.append(",");
             }
             Object sample = null;
-            for (Map<String, Object> r : records) {
+            for (var r : records) {
                 if (r.get(fieldName) != null) {
                     sample = r.get(fieldName);
                     break;
                 }
             }
-            String avroType = "string";
+            var avroType = "string";
             if (sample instanceof Integer || sample instanceof Long) {
                 avroType = "long";
             } else if (sample instanceof Float || sample instanceof Double) {
@@ -131,17 +129,17 @@ public abstract class HudiRecordUtils {
         String recordKeyField,
         String partitionField
     ) {
-        List<HoodieRecord<HoodieAvroPayload>> result = new ArrayList<>(records.size());
+        var result = new ArrayList<HoodieRecord<HoodieAvroPayload>>(records.size());
         var index = -1;
-        for (Map<String, Object> record : records) {
+        for (var record : records) {
             index++;
             GenericRecord genericRecord = new GenericData.Record(schema);
-            for (Schema.Field field : schema.getFields()) {
-                Object val = record.get(field.name());
+            for (var field : schema.getFields()) {
+                var val = record.get(field.name());
                 if (val != null) {
-                    Schema.Type type = field.schema().getType();
+                    var type = field.schema().getType();
                     if (type == Schema.Type.UNION) {
-                        for (Schema s : field.schema().getTypes()) {
+                        for (var s : field.schema().getTypes()) {
                             if (s.getType() != Schema.Type.NULL) {
                                 type = s.getType();
                                 break;
@@ -174,10 +172,10 @@ public abstract class HudiRecordUtils {
             }
 
             var key = requireKey(record, recordKeyField, index);
-            String partition = (partitionField != null && record.get(partitionField) != null) ? String.valueOf(record.get(partitionField)) : "";
+            var partition = (partitionField != null && record.get(partitionField) != null) ? String.valueOf(record.get(partitionField)) : "";
 
-            HoodieKey hoodieKey = new HoodieKey(key, partition);
-            HoodieAvroPayload payload = new HoodieAvroPayload(Option.of(genericRecord));
+            var hoodieKey = new HoodieKey(key, partition);
+            var payload = new HoodieAvroPayload(Option.of(genericRecord));
             result.add(new HoodieAvroRecord<>(hoodieKey, payload));
         }
         return result;
@@ -201,7 +199,7 @@ public abstract class HudiRecordUtils {
             return Collections.emptyList();
         }
 
-        List<HoodieKey> keys = new ArrayList<>();
+        var keys = new ArrayList<HoodieKey>();
         if (fromObj instanceof List<?> list) {
             for (var i = 0; i < list.size(); i++) {
                 var item = list.get(i);
