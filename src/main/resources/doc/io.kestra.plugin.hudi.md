@@ -6,13 +6,15 @@ This plugin reads, writes and maintains [Apache Hudi](https://hudi.apache.org/) 
 
 Every task and the trigger take the same connection properties:
 
-- `basePath` (required): table location, for example `file:///data/hudi/orders`.
+- `basePath` (required): table location, for example `s3a://my-bucket/hudi/orders`. Allowed remote schemes: `hdfs`, `s3a`, `gs`, `abfs`, `abfss`, `wasb`, `wasbs`. A local path (relative, absolute or `file://`) must be inside the working directory and is resolved against it.
 - `tableName` (required): name of the Hudi table.
-- `configuration` (optional, secret): map of Hadoop and Hudi settings, for example storage credentials or `hoodie.*` write configs. Implementation class keys (ending with `.impl`, `.class`, `.classname`, `.classnames` or `.factory`) are not allowed.
+- `configuration` (optional, secret): map of Hadoop and Hudi settings, for example storage credentials or `hoodie.*` write configs. Allowed configuration keys start with `hoodie.`, `fs.s3a.`, `fs.gs.`, `fs.azure.` or `fs.abfs.`. Within `hoodie.`, keys containing `callback`, `lock.provider`, `.class`, `.impl`, `.factory`, `classname`, `.url`, `.endpoint` or `compaction.strategy` are not allowed. Within the `fs.*` prefixes, keys ending with `.impl`, `.class`, `.classname` or `.factory`, and keys containing `provider`, `signers`, `interceptors` or `binding`, are not allowed, except the credential and endpoint keys `access.key`, `secret.key`, `session.token`, `endpoint`, `path.style.access` and `region`. `fs.defaultFS` and `fs.viewfs.*` are not allowed, the scheme comes from `basePath`.
 
 `configuration` is marked as a secret and is hidden from logs. Store credentials in [secrets](https://kestra.io/docs/concepts/secret) and reference them with `{{ secret('NAME') }}`. To share the same connection across flows, use [plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults).
 
-Only the file systems present on the plugin classpath can be used. Local (`file://`) and HDFS paths work out of the box; `s3a://`, GCS and Azure paths need the matching Hadoop connector, which is not bundled yet.
+Only the file systems present on the plugin classpath can be used. HDFS paths and local paths work out of the box; `s3a://`, GCS and Azure paths need the matching Hadoop connector, which is not bundled yet.
+
+A local table lives and dies with the working directory of the task. To use one table from several tasks, wrap them in `io.kestra.plugin.core.flow.WorkingDirectory` so they share the directory.
 
 ## Tasks
 
@@ -46,7 +48,7 @@ Killing a `Compact` or `Cluster` execution rolls back the instant in progress.
 
 ## Triggers
 
-`Trigger` polls the active timeline every `interval` (default `PT5M`) and starts an execution when a commit newer than the last seen one appears. The last seen commit is stored in the namespace KV store per flow, trigger and table. A missing table is skipped; any other error, such as bad credentials, fails the poll.
+`Trigger` needs a remote `basePath` (one of the allowed remote schemes), because a trigger has no shared working directory: it is new and empty on every check, so a local table could never be found. `Trigger` polls the active timeline every `interval` (default `PT5M`) and starts an execution when a commit newer than the last seen one appears. The last seen commit is stored in the namespace KV store per flow, trigger and table. A missing table is skipped; any other error, such as bad credentials, fails the poll.
 
 Outputs: `lastCommitTime`, `action`, `tableName`, `basePath`.
 
@@ -62,7 +64,7 @@ tasks:
 triggers:
   - id: wait_for_commit
     type: io.kestra.plugin.hudi.Trigger
-    basePath: hudi_tables/orders
+    basePath: s3a://my-bucket/hudi/orders
     tableName: orders
     interval: PT2M
 ```

@@ -31,7 +31,7 @@ import org.apache.hudi.common.util.Option;
                 tasks:
                   - id: compact_table
                     type: io.kestra.plugin.hudi.Compact
-                    basePath: hudi_tables/orders
+                    basePath: s3a://my-bucket/hudi/orders
                     tableName: orders
                 """
         )

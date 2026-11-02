@@ -38,7 +38,7 @@ import java.util.List;
                 tasks:
                   - id: upsert_records
                     type: io.kestra.plugin.hudi.Upsert
-                    basePath: hudi_tables/orders
+                    basePath: s3a://my-bucket/hudi/orders
                     tableName: orders
                     recordKeyField: order_id
                     precombineField: updated_at
@@ -46,6 +46,35 @@ import java.util.List;
                       - order_id: 1
                         updated_at: 1672531199000
                         status: COMPLETED
+                """
+        ),
+        @Example(
+            full = true,
+            title = "Upsert into a local table and list its commits, sharing the working directory. A local table lives and dies with the working directory of the task.",
+            code = """
+                id: hudi_local_flow
+                namespace: company.team
+
+                tasks:
+                  - id: workdir
+                    type: io.kestra.plugin.core.flow.WorkingDirectory
+                    tasks:
+                      - id: upsert_records
+                        type: io.kestra.plugin.hudi.Upsert
+                        basePath: hudi_tables/orders
+                        tableName: orders
+                        recordKeyField: order_id
+                        precombineField: updated_at
+                        from:
+                          - order_id: 1
+                            updated_at: 1672531199000
+                            status: COMPLETED
+
+                      - id: list_commits
+                        type: io.kestra.plugin.hudi.Commits
+                        basePath: hudi_tables/orders
+                        tableName: orders
+                        fetchType: FETCH
                 """
         )
     }

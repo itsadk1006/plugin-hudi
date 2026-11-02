@@ -39,7 +39,7 @@ import java.util.Map;
                 tasks:
                   - id: list_commits
                     type: io.kestra.plugin.hudi.Commits
-                    basePath: hudi_tables/orders
+                    basePath: s3a://my-bucket/hudi/orders
                     tableName: orders
                     fetchType: FETCH
                 """

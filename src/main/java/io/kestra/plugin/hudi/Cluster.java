@@ -35,7 +35,7 @@ import org.apache.hudi.config.HoodieClusteringConfig;
                 tasks:
                   - id: cluster_table
                     type: io.kestra.plugin.hudi.Cluster
-                    basePath: hudi_tables/orders
+                    basePath: s3a://my-bucket/hudi/orders
                     tableName: orders
                 """
         )
